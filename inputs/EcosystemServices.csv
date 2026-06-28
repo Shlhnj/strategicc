@@ -1,0 +1,12 @@
+StateClassId,ServiceName,ServiceType,ValuePerHa,Currency,PhysicalUnit,PhysicalValuePerHa
+Water_body,,,,,, 
+Tidal_flat,Coastal Protection,Regulating,5000000,IDR,,
+Mangrove,Carbon Sequestration,Regulating,97500000,IDR,MgC/ha,1300
+Mangrove,Coastal Protection,Regulating,15000000,IDR,,
+Mangrove,Fishery Nursery,Provisioning,8000000,IDR,,
+Mangrove,Ecotourism,Cultural,12500000,IDR,,
+Other_vegetation,Carbon Sequestration,Regulating,25000000,IDR,MgC/ha,350
+Other_vegetation,Biodiversity Habitat,Cultural,10000000,IDR,,
+Settlement,,,,,, 
+Cropland,Crop Provisioning,Provisioning,30000000,IDR,kg/ha,5000
+Aquaculture,Aquaculture Fishery,Provisioning,45000000,IDR,kg/ha,800
