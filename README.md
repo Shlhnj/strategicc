@@ -13,7 +13,7 @@ A python package implementation of State-and-Transition Simulation Model (STSM) 
 ### Set Configuration
 
 ```
-import strategic.config as cfg
+import strategicc.config as cfg
 from pathlib import Path
 
 cfg.LULC_PATH          = Path("2022.tif")
