@@ -39,7 +39,7 @@ cfg.USE_TRANS_MULTIPLIER = True
 ### Diagnose Configuration
 
 ```
-from strategic import STSMEngine
+from strategicc import STSMEngine
 
 engine = STSMEngine.from_config()
 engine.load()
