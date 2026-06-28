@@ -8,6 +8,8 @@ A python package implementation of State-and-Transition Simulation Model (STSM) 
 
 
 ### Set Configuration
+
+```
 import stsm.config as cfg
 from pathlib import Path
 
@@ -29,18 +31,27 @@ cfg.RNG_SEED             = 42
 cfg.USE_ADJACENCY        = True
 cfg.USE_SPATIAL_MULT     = True
 cfg.USE_TRANS_MULTIPLIER = True
+```
 
 ### Diagnose Configuration
+
+```
 from stsm import STSMEngine
 
 engine = STSMEngine.from_config()
 engine.load()
 engine.diagnostic()
+```
 
 ### Run Engine
+
+```
 engine.run()
+```
 
 ### Show Summary Plot
+
+```
 from stsm import outputs
 
 summary_dir = engine.out_dir / "summary"
@@ -58,4 +69,4 @@ Show plots inline
 from IPython.display import Image, display
 display(Image(str(summary_dir / "area_envelope.png")))
 display(Image(str(summary_dir / "transition_envelope.png")))
-
+```
