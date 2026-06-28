@@ -21,8 +21,8 @@ cfg.STATE_CLASSES_CSV  = Path("25062026 State Class.csv")
 cfg.TRANSITIONS_CSV    = Path("23062026_stsm_transition_probabilities.csv")
 cfg.SPATIAL_MULT_CSV   = Path("27062026 Transition Spatial Multipliers.csv")
 cfg.TRANSITION_MULT_CSV= Path("27062026 Transition Multipliers.csv")
-cfg.MULT_DIR           = Path("mult_spat/")
-cfg.OUT_DIR            = Path("stsm_tes_output_2_adjacency/")
+cfg.MULT_DIR           = Path("mult_spat/")   #folder for transition spatial multiplier
+cfg.OUT_DIR            = Path("strategicc_test") #output folder
 
 
 cfg.ADJACENCY_STRENGTH   = 2
