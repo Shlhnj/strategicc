@@ -5,12 +5,15 @@ A python package implementation of State-and-Transition Simulation Model (STSM) 
 
 ## Usage
 ###install the package
+```
+!pip install git+https://github.com/Shlhnj/strategicc.git
+```
 
 
 ### Set Configuration
 
 ```
-import stsm.config as cfg
+import strategic.config as cfg
 from pathlib import Path
 
 cfg.LULC_PATH          = Path("2022.tif")
@@ -25,7 +28,7 @@ cfg.OUT_DIR            = Path("stsm_tes_output_2_adjacency/")
 cfg.ADJACENCY_STRENGTH   = 2
 cfg.START_YEAR           = 2022
 cfg.N_TIMESTEPS          = 30
-cfg.N_ITERATIONS         = 100    # ← change this to run more/fewer iterations
+cfg.N_ITERATIONS         = 100    
 cfg.RNG_SEED             = 42
 
 cfg.USE_ADJACENCY        = True
@@ -36,7 +39,7 @@ cfg.USE_TRANS_MULTIPLIER = True
 ### Diagnose Configuration
 
 ```
-from stsm import STSMEngine
+from strategic import STSMEngine
 
 engine = STSMEngine.from_config()
 engine.load()
@@ -52,7 +55,7 @@ engine.run()
 ### Show Summary Plot
 
 ```
-from stsm import outputs
+from strategicc import outputs
 
 summary_dir = engine.out_dir / "summary"
 
