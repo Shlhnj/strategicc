@@ -1,5 +1,5 @@
 """
-strategicc/run.py  —  v2.0
+strategicc/run.py  —  v2.1
 ---------------------------
 Entry point.
 
@@ -27,7 +27,7 @@ def main() -> None:
     # ── 2. Run all iterations ─────────────────────────────────────────────────
     engine.run()
 
-    # ── 3. Aggregate LULC outputs ─────────────────────────────────────────────
+    # ── 3. Aggregate tabular outputs ──────────────────────────────────────────
     summary_dir = engine.out_dir / "summary"
     print("\n[7] Building LULC summary tables...")
     area_df, trans_df = outputs.build_summary_tables(
@@ -38,10 +38,32 @@ def main() -> None:
     outputs.plot_area_envelope(area_df, engine.classes, summary_dir)
     outputs.plot_transition_envelope(trans_df, summary_dir)
 
-    # ── 4. SEEA-EA accounting ─────────────────────────────────────────────────
+    # ── 4. Spatial aggregation (v2.1) ─────────────────────────────────────────
+    print("\n[9] Aggregating spatial outputs across iterations...")
+    modal_maps = outputs.aggregate_spatial(
+        iter_dirs   = engine.iter_dirs,
+        start_year  = engine.start_year,
+        n_timesteps = engine.n_timesteps,
+        src_tags    = engine.src_tags,
+        summary_dir = summary_dir,
+        uncertainty = True,      # set False to skip uncertainty rasters
+    )
+
+    print("\n[10] Generating spatial summary plot...")
+    outputs.plot_spatial_summary(
+        initial_lulc = engine._initial_lulc,
+        modal_maps   = modal_maps,
+        classes      = engine.classes,
+        start_year   = engine.start_year,
+        n_timesteps  = engine.n_timesteps,
+        summary_dir  = summary_dir,
+        uncertainty  = True,
+    )
+
+    # ── 5. SEEA-EA accounting ─────────────────────────────────────────────────
     if engine.use_seea and engine.ecosystem_services:
         seea_dir = engine.out_dir / "seea"
-        print("\n[9] Running SEEA-EA ecosystem accounting...")
+        print("\n[11] Running SEEA-EA ecosystem accounting...")
 
         acct = SEEAAccount(
             area_df    = area_df,
@@ -59,8 +81,8 @@ def main() -> None:
         seea_outputs.plot_value_by_service(acct, seea_dir)
         seea_outputs.plot_transition_heatmap(acct, seea_dir)
 
-    # ── 5. Diagnostic maps (iter 1) ───────────────────────────────────────────
-    print("\n[10] Generating diagnostic maps (iteration 1)...")
+    # ── 6. Diagnostic maps (iter 1) ───────────────────────────────────────────
+    print("\n[12] Generating diagnostic maps (iteration 1)...")
     from strategicc.io.raster import read_lulc
     maps_iter1 = []
     for t in range(engine.n_timesteps + 1):
