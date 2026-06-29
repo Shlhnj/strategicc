@@ -1,20 +1,24 @@
 """
-strategicc/accounting/seea.py  —  SEEA-EA accounting engine  v2.0
+strategicc/accounting/seea.py  —  SEEA-EA accounting engine  v2.2
 ------------------------------------------------------------------
 Produces all ecosystem accounts from simulation outputs.
 
+v2.2 changes
+------------
+* Accepts area_modal_df — derived from modal LULC maps — as the primary
+  area input for all accounts. This ensures full consistency between the
+  spatial (modal raster) and tabular (SEEA) representations.
+* area_df (raw per-iteration) is retained only for the uncertainty summary.
+* Area unit is detected automatically from column name (area_ha/km2/px).
+
 Accounts produced
 -----------------
-1. Extent account        — area (ha) per class per year
+1. Extent account        — area per class per year (modal)
 2. Transition matrix     — area converted between classes + value change
 3. Physical flow account — total physical units supplied per service per year
-                           (Mode B only, where PhysicalUnit is specified)
 4. Monetary flow account — total monetary value per service per year
 5. Change-in-value       — year-on-year change in total ecosystem value
-6. Uncertainty summary   — min/max range across iterations (reported once)
-
-All accounts use the median area across iterations as the central estimate,
-with min/max noted in the uncertainty summary.
+6. Uncertainty summary   — min/max range across iterations (raw area_df)
 """
 
 from __future__ import annotations
@@ -27,71 +31,104 @@ from strategicc.io.csv_loader import StateClass
 from strategicc.accounting.csv_loader import EcosystemService
 
 
+def _area_col(df: pd.DataFrame) -> str:
+    """Detect area column name (area_ha / area_km2 / area_px)."""
+    for col in df.columns:
+        if col.startswith("area_"):
+            return col
+    raise ValueError(
+        f"No area column found. Expected area_ha, area_km2, or area_px. "
+        f"Got: {list(df.columns)}"
+    )
+
+
+def _unit_label(col: str) -> str:
+    """'area_ha' → 'ha', 'area_km2' → 'km²', 'area_px' → 'pixels'"""
+    mapping = {"ha": "ha", "km2": "km²", "px": "pixels"}
+    key = col.replace("area_", "")
+    return mapping.get(key, key)
+
+
 class SEEAAccount:
     """
-    SEEA-EA ecosystem accounting engine.
+    SEEA-EA ecosystem accounting engine  v2.2
 
     Parameters
     ----------
-    area_df      : concatenated area_table.csv across all iterations
-                   (columns: iteration, year, class_id, class_name, area_ha)
-    trans_df     : concatenated transition_log.csv across all iterations
-                   (columns: iteration, year, row, col, from_class, to_class, group)
-    services     : list of EcosystemService from EcosystemServices.csv
-    classes      : dict[int, StateClass] from load_state_classes()
-    px_area_ha   : pixel area in hectares (for transition matrix area calc)
+    area_modal_df : area table derived from modal LULC maps — used for all
+                    accounts. Schema: year, class_id, class_name, area_{unit}
+                    Produced by outputs.modal_to_area_table().
+
+    area_df       : raw per-iteration area table — used ONLY for the
+                    uncertainty summary. Schema adds an 'iteration' column.
+                    Pass None to skip uncertainty summary.
+
+    trans_df      : concatenated transition_log.csv across all iterations.
+                    Used for transition matrix (median counts across iters).
+
+    services      : list of EcosystemService from EcosystemServices.csv
+
+    classes       : dict[int, StateClass]
+
+    px_area       : pixel area in the chosen unit (engine.px_area).
+                    Used for transition matrix area calculation.
     """
 
     def __init__(
         self,
-        area_df:    pd.DataFrame,
-        trans_df:   pd.DataFrame,
-        services:   list[EcosystemService],
-        classes:    dict[int, StateClass],
-        px_area_ha: float,
+        area_modal_df: pd.DataFrame,
+        trans_df:      pd.DataFrame,
+        services:      list[EcosystemService],
+        classes:       dict[int, StateClass],
+        px_area:       float,
+        area_df:       pd.DataFrame | None = None,   # raw — for uncertainty only
     ) -> None:
-        self.area_df    = area_df
-        self.trans_df   = trans_df
-        self.services   = services
-        self.classes    = classes
-        self.px_area_ha = px_area_ha
+        self.area_modal_df = area_modal_df
+        self.trans_df      = trans_df
+        self.services      = services
+        self.classes       = classes
+        self.px_area       = px_area
+        self.area_df       = area_df   # may be None
+
+        # Detect area column and unit label from modal df
+        self._acol       = _area_col(area_modal_df)
+        self._unit_label = _unit_label(self._acol)
 
         # Build service lookup: class_name → list of services
         self._svc_by_class: dict[str, list[EcosystemService]] = {}
         for svc in services:
             self._svc_by_class.setdefault(svc.state_class, []).append(svc)
 
-        # Compute median area across iterations once
-        self._median_area = self._compute_median_area()
-        self._years       = sorted(self._median_area["year"].unique())
+        self._years = sorted(area_modal_df["year"].unique())
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def extent_account(self) -> pd.DataFrame:
         """
         Ecosystem extent account.
-        Rows: year. Columns: one per class (area in ha). Matches SEEA-EA Tab #2.
+        Rows: year. Columns: one per class (area in chosen unit).
+        Derived from modal LULC maps — spatially consistent.
         """
-        pivot = self._median_area.pivot_table(
-            index="year", columns="class_name", values="area_ha", aggfunc="sum"
+        pivot = self.area_modal_df.pivot_table(
+            index="year", columns="class_name",
+            values=self._acol, aggfunc="sum"
         ).fillna(0)
         pivot.columns.name = None
-        pivot.index.name   = "Year"
+        pivot.index.name   = f"Year"
+        pivot.attrs["unit"] = self._unit_label
         return pivot
 
     def transition_matrix(self) -> pd.DataFrame:
         """
         Ecosystem extent change matrix.
-        Shows median area (ha) converted from each class (rows) to each class (cols)
-        aggregated across all timesteps. Matches SEEA-EA Tab #3.
-        Also includes a value_change_matrix() for monetary impact.
+        Shows median area converted from each class (rows) to each class (cols)
+        aggregated across all timesteps.
         """
         if self.trans_df.empty:
             return pd.DataFrame()
 
         class_names = [sc.name for sc in self.classes.values()]
 
-        # Median transition counts per from/to pair across iterations
         counts = (
             self.trans_df.groupby(["iteration", "from_class", "to_class"])
             .size()
@@ -102,27 +139,25 @@ class SEEAAccount:
             .median()
             .reset_index()
         )
-        median_counts["area_ha"] = median_counts["n_cells"] * self.px_area_ha
+        median_counts["area"] = median_counts["n_cells"] * self.px_area
 
         matrix = median_counts.pivot_table(
             index="from_class", columns="to_class",
-            values="area_ha", aggfunc="sum"
+            values="area", aggfunc="sum"
         ).reindex(index=class_names, columns=class_names).fillna(0)
-        matrix.index.name   = "From \\ To"
+        matrix.index.name   = f"From \\ To ({self._unit_label})"
         matrix.columns.name = None
         return matrix
 
     def value_change_matrix(self) -> pd.DataFrame:
         """
-        Monetary value change from transitions (from_class → to_class).
-        Each cell = median area converted × (value_per_ha_destination − value_per_ha_source).
-        Negative = value loss, positive = value gain.
+        Monetary value change from transitions.
+        Each cell = median area converted × (value_per_unit_dest − value_per_unit_src).
         """
         tm = self.transition_matrix()
         if tm.empty:
             return pd.DataFrame()
 
-        # Total value per ha per class (sum across all services for that class)
         total_val: dict[str, float] = {}
         for sc in self.classes.values():
             svcs = self._svc_by_class.get(sc.name, [])
@@ -136,7 +171,7 @@ class SEEAAccount:
                     delta = total_val.get(to_cls, 0) - total_val.get(from_cls, 0)
                     val_matrix.loc[from_cls, to_cls] = area * delta
 
-        val_matrix.index.name   = "From \\ To"
+        val_matrix.index.name   = "From \\ To (currency)"
         val_matrix.columns.name = None
         return val_matrix
 
@@ -144,14 +179,13 @@ class SEEAAccount:
         """
         Physical ecosystem service flow account (Mode B only).
         Rows: year. Columns: (service_type, service_name, unit). Values: total quantity.
-        Returns None if no services have physical units defined.
         """
         mode_b = [s for s in self.services if s.has_physical]
         if not mode_b:
             return None
 
         records = []
-        for _, row in self._median_area.iterrows():
+        for _, row in self.area_modal_df.iterrows():
             svcs = [s for s in self._svc_by_class.get(row["class_name"], [])
                     if s.has_physical]
             for svc in svcs:
@@ -161,7 +195,7 @@ class SEEAAccount:
                     "service_type": svc.service_type,
                     "service_name": svc.service_name,
                     "unit":         svc.physical_unit,
-                    "flow":         svc.physical_per_ha * row["area_ha"],
+                    "flow":         svc.physical_per_ha * row[self._acol],
                 })
 
         df = pd.DataFrame(records)
@@ -177,10 +211,12 @@ class SEEAAccount:
     def monetary_flow_account(self) -> pd.DataFrame:
         """
         Monetary ecosystem service flow account.
-        Rows: year. Columns: (service_type, service_name). Values: total value (currency).
+        Rows: year. Columns: (service_type, service_name). Values: total value.
+        Note: ValuePerHa in EcosystemServices.csv is treated as value per
+        area unit — if AREA_UNIT='km2', ensure values are per km².
         """
         records = []
-        for _, row in self._median_area.iterrows():
+        for _, row in self.area_modal_df.iterrows():
             for svc in self._svc_by_class.get(row["class_name"], []):
                 records.append({
                     "year":         row["year"],
@@ -188,7 +224,7 @@ class SEEAAccount:
                     "service_type": svc.service_type,
                     "service_name": svc.service_name,
                     "currency":     svc.currency,
-                    "value":        svc.value_per_ha * row["area_ha"],
+                    "value":        svc.value_per_ha * row[self._acol],
                 })
 
         df = pd.DataFrame(records)
@@ -202,14 +238,11 @@ class SEEAAccount:
         return pivot
 
     def total_value_by_class(self) -> pd.DataFrame:
-        """
-        Total monetary value per class per year (area × sum of all ValuePerHa).
-        Useful for stacked area plots.
-        """
+        """Total monetary value per class per year. Used for stacked area plots."""
         records = []
-        for _, row in self._median_area.iterrows():
-            svcs = self._svc_by_class.get(row["class_name"], [])
-            total = sum(s.value_per_ha for s in svcs) * row["area_ha"]
+        for _, row in self.area_modal_df.iterrows():
+            svcs  = self._svc_by_class.get(row["class_name"], [])
+            total = sum(s.value_per_ha for s in svcs) * row[self._acol]
             records.append({
                 "year":  row["year"],
                 "class": row["class_name"],
@@ -224,48 +257,39 @@ class SEEAAccount:
         return pivot
 
     def change_in_value(self) -> pd.DataFrame:
-        """
-        Year-on-year change in total ecosystem service value.
-        Rows: year. Columns: class + Total. Values: delta value from previous year.
-        """
-        tv = self.total_value_by_class()
+        """Year-on-year change in total ecosystem service value."""
+        tv    = self.total_value_by_class()
         delta = tv.diff()
         delta["Total"] = delta.sum(axis=1)
         delta.index.name = "Year"
         return delta
 
-    def uncertainty_summary(self) -> pd.DataFrame:
+    def uncertainty_summary(self) -> pd.DataFrame | None:
         """
-        Min/max range of total ecosystem value across iterations, per year.
-        Reported once as a context note (not repeated per account).
+        Min/max range of total ecosystem value across iterations.
+        Returns None if area_df (raw) was not provided.
         """
-        # Total value per iteration per year
-        records = []
+        if self.area_df is None or self.area_df.empty:
+            return None
+
+        raw_acol = _area_col(self.area_df)
+        records  = []
         for (iteration, year, class_name), grp in self.area_df.groupby(
             ["iteration", "year", "class_name"]
         ):
-            area = grp["area_ha"].sum()
+            area = grp[raw_acol].sum()
             svcs = self._svc_by_class.get(class_name, [])
             val  = sum(s.value_per_ha for s in svcs) * area
             records.append({"iteration": iteration, "year": year, "value": val})
 
-        df = pd.DataFrame(records)
+        df    = pd.DataFrame(records)
         stats = (
             df.groupby("year")["value"]
             .agg(median="median", min="min", max="max")
             .reset_index()
         )
-        stats["range_pct"] = ((stats["max"] - stats["min"]) / stats["median"] * 100).round(1)
-        stats.columns      = ["Year", "Median value", "Min value", "Max value", "Range (%)"]
+        stats["range_pct"] = (
+            (stats["max"] - stats["min"]) / stats["median"].replace(0, np.nan) * 100
+        ).round(1)
+        stats.columns = ["Year", "Median value", "Min value", "Max value", "Range (%)"]
         return stats
-
-    # ── Internal ──────────────────────────────────────────────────────────────
-
-    def _compute_median_area(self) -> pd.DataFrame:
-        """Median area per class per year across iterations."""
-        median = (
-            self.area_df.groupby(["year", "class_id", "class_name"])["area_ha"]
-            .median()
-            .reset_index()
-        )
-        return median

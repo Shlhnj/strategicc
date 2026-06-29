@@ -71,6 +71,9 @@ def build_summary_tables(
     Concatenate per-iteration area_table.csv and transition_log.csv files
     into two combined CSVs in summary_dir.
 
+    The area column name is detected automatically from the CSV header
+    (area_ha, area_km2, or area_px) so this works regardless of AREA_UNIT.
+
     Returns
     -------
     area_df        : concatenated area table (all iterations)
@@ -97,6 +100,14 @@ def build_summary_tables(
     return area_df, trans_df
 
 
+def _area_col(df: pd.DataFrame) -> str:
+    """Return the area column name from an area DataFrame (area_ha/km2/px)."""
+    for col in df.columns:
+        if col.startswith("area_"):
+            return col
+    raise ValueError(f"No area column found in DataFrame. Columns: {list(df.columns)}")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Area envelope plot
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,6 +122,7 @@ def plot_area_envelope(
     Line chart of state class area over time.
     Median across iterations = solid line.
     Min–max range across iterations = shaded band.
+    Works with any AREA_UNIT (column name detected automatically).
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -118,6 +130,8 @@ def plot_area_envelope(
         print("  [Skip] area_df is empty — no area envelope plot generated")
         return
 
+    acol       = _area_col(area_df)
+    unit_label = acol.replace("area_", "")   # "ha", "km2", or "px"
     years      = sorted(area_df["year"].unique())
     class_ids  = sorted(classes.keys())
 
@@ -128,9 +142,8 @@ def plot_area_envelope(
         color  = _class_rgb(sc)
         subset = area_df[area_df["class_id"] == cid]
 
-        # Stats per year across iterations
         stats = (
-            subset.groupby("year")["area_ha"]
+            subset.groupby("year")[acol]
             .agg(["median", "min", "max"])
             .reindex(years)
         )
@@ -141,7 +154,7 @@ def plot_area_envelope(
                         color=color, alpha=0.20, zorder=2)
 
     ax.set_xlabel("Year", fontsize=11)
-    ax.set_ylabel("Area (ha)", fontsize=11)
+    ax.set_ylabel(f"Area ({unit_label})", fontsize=11)
     ax.set_title("State Class Area Over Time\n"
                  "(solid = median, band = min–max across iterations)",
                  fontsize=12)
@@ -531,3 +544,48 @@ def plot_spatial_summary(
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  Spatial summary plot saved to: {out_path}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Modal area table  (v2.2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def modal_to_area_table(
+    modal_maps:  dict[int, np.ndarray],
+    classes:     dict[int, StateClass],
+    px_area:     float,
+    area_unit:   str = "ha",
+) -> pd.DataFrame:
+    """
+    Derive a per-class area table from modal LULC maps.
+
+    This produces `area_modal_df` — the spatially-consistent area table
+    used as input to SEEA-EA accounting.  It counts pixels of each class
+    in each modal map and multiplies by `px_area` (already converted to
+    the chosen unit).
+
+    Parameters
+    ----------
+    modal_maps : dict year → uint8 modal class array, from aggregate_spatial()
+    classes    : dict[int, StateClass]
+    px_area    : pixel area in the chosen unit (engine.px_area)
+    area_unit  : "ha" | "km2" | "px"  — used only for the column name
+
+    Returns
+    -------
+    pd.DataFrame with columns:
+        year, class_id, class_name, area_{unit}
+    Schema matches area_df but with a single "iteration" = "modal" label.
+    """
+    unit_col = f"area_{area_unit}"
+    rows = []
+    for year in sorted(modal_maps.keys()):
+        arr = modal_maps[year]
+        for cid, sc in classes.items():
+            rows.append({
+                "year":       year,
+                "class_id":   cid,
+                "class_name": sc.name,
+                unit_col:     float(np.sum(arr == cid)) * px_area,
+            })
+    return pd.DataFrame(rows)

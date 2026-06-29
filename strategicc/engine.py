@@ -1,12 +1,12 @@
 """
-strategicc/engine.py  —  v2.0
+strategicc/engine.py  —  v2.2
 ------------------------------
-STSMEngine: main simulation class with multi-iteration support.
+StrategiccEngine: main simulation class with multi-iteration support.
 
 Usage
 -----
-    from strategicc import STSMEngine
-    engine = STSMEngine.from_config()
+    from strategicc import StrategiccEngine
+    engine = StrategiccEngine.from_config()
     engine.load()
     engine.run()    # runs all iterations, writes per-iter outputs to disk
 """
@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from strategicc import config
-from strategicc.io.raster     import read_lulc, save_tifs
+from strategicc.io.raster     import read_lulc, save_tifs, get_pixel_area, UNIT_LABELS
 from strategicc.io.csv_loader import (
     load_state_classes,
     load_transitions,
@@ -35,7 +35,7 @@ from strategicc.core.multipliers import (
 from strategicc.accounting.csv_loader import load_ecosystem_services, EcosystemService
 
 
-class STSMEngine:
+class StrategiccEngine:
     """
     STRATEGICC engine  v2.0
 
@@ -72,6 +72,7 @@ class STSMEngine:
         use_spatial_mult:     bool = True,
         use_trans_multiplier: bool = True,
         use_seea:             bool = True,
+        area_unit:            str  = "ha",
     ) -> None:
         self.lulc_path               = Path(lulc_path)
         self.state_classes_csv       = Path(state_classes_csv)
@@ -89,22 +90,24 @@ class STSMEngine:
         self.use_spatial_mult        = use_spatial_mult
         self.use_trans_multiplier    = use_trans_multiplier
         self.use_seea                = use_seea
+        self.area_unit               = area_unit   # v2.2
 
         # Populated by load()
-        self.classes:             dict = {}
-        self.trans_index:         dict = {}
-        self.spatial_mults:       dict = {}
-        self.trans_mult_rules:    list = []
-        self.ecosystem_services:  list = []
-        self.src_tags:            dict = {}
+        self.classes:             dict  = {}
+        self.trans_index:         dict  = {}
+        self.spatial_mults:       dict  = {}
+        self.trans_mult_rules:    list  = []
+        self.ecosystem_services:  list  = []
+        self.src_tags:            dict  = {}
         self.px_area_ha:          float = 1.0
+        self.px_area:             float = 1.0   # v2.2 — in chosen unit
         self._initial_lulc:       np.ndarray | None = None
 
         # Populated by run()
         self.iter_dirs: list[Path] = []
 
     @classmethod
-    def from_config(cls) -> "STSMEngine":
+    def from_config(cls) -> "StrategiccEngine":
         """Construct an engine using all paths/settings from strategicc/config.py."""
         return cls(
             lulc_path              = config.LULC_PATH,
@@ -123,6 +126,7 @@ class STSMEngine:
             use_spatial_mult       = config.USE_SPATIAL_MULT,
             use_trans_multiplier   = config.USE_TRANS_MULTIPLIER,
             use_seea               = config.USE_SEEA,
+            area_unit              = config.AREA_UNIT,
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -132,7 +136,12 @@ class STSMEngine:
         print("\n[1] Reading LULC raster...")
         lulc, self.px_area_ha, self.src_tags = read_lulc(self.lulc_path)
         self._initial_lulc = lulc
-        print(f"  Shape: {lulc.shape}  |  px_area: {self.px_area_ha:.4f} ha")
+        self.px_area = get_pixel_area(self.px_area_ha, self.area_unit)
+        unit_label   = UNIT_LABELS[self.area_unit]
+        print(f"  Shape: {lulc.shape}  |  "
+              f"px_area: {self.px_area_ha:.6f} ha  "
+              f"= {self.px_area:.6f} {unit_label}  "
+              f"(AREA_UNIT='{self.area_unit}')")
 
         print("\n[2] Loading state classes...")
         self.classes = load_state_classes(self.state_classes_csv)
@@ -364,6 +373,7 @@ class STSMEngine:
         out_dir: Path,
         iteration: int,
     ) -> None:
+        unit_col = f"area_{self.area_unit}"
         rows = []
         for t, arr in enumerate(maps):
             year = self.start_year + t
@@ -373,7 +383,7 @@ class STSMEngine:
                     "year":       year,
                     "class_id":   cid,
                     "class_name": sc.name,
-                    "area_ha":    float(np.sum(arr == cid)) * self.px_area_ha,
+                    unit_col:     float(np.sum(arr == cid)) * self.px_area,
                 })
         pd.DataFrame(rows).to_csv(out_dir / "area_table.csv", index=False)
 

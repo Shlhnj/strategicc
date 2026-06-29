@@ -1,19 +1,31 @@
 """
 strategicc/io/raster.py
------------------
+-----------------------
 Read and write GeoTIFF rasters using Pillow (no GDAL dependency).
 """
 
 from __future__ import annotations
-import os
 import numpy as np
 from pathlib import Path
 from PIL import Image
 
 
 # ── Tag constants (GeoTIFF) ───────────────────────────────────────────────────
-_TAG_TIE_POINT  = 33922   # ModelTiepointTag
-_TAG_PIXEL_SCALE = 33550  # ModelPixelScaleTag
+_TAG_TIE_POINT   = 33922   # ModelTiepointTag
+_TAG_PIXEL_SCALE = 33550   # ModelPixelScaleTag
+
+# ── Area unit conversion factors (from hectares) ──────────────────────────────
+_UNIT_FACTORS: dict[str, float] = {
+    "ha":  1.0,
+    "km2": 0.01,
+    "px":  None,   # special: ignore pixel size, return 1.0 per pixel
+}
+
+UNIT_LABELS: dict[str, str] = {
+    "ha":  "ha",
+    "km2": "km²",
+    "px":  "pixels",
+}
 
 
 def _pixel_area_ha(tags: dict) -> float:
@@ -23,15 +35,38 @@ def _pixel_area_ha(tags: dict) -> float:
     return (px_w * 111_000) * (px_h * 111_000) / 10_000
 
 
+def get_pixel_area(px_area_ha: float, unit: str) -> float:
+    """
+    Convert px_area_ha to the target unit.
+
+    Parameters
+    ----------
+    px_area_ha : pixel area in hectares (from read_lulc / read_tiff)
+    unit       : one of "ha", "km2", "px"
+
+    Returns
+    -------
+    area per pixel in the chosen unit
+    """
+    if unit not in _UNIT_FACTORS:
+        raise ValueError(
+            f"Unknown AREA_UNIT '{unit}'. Must be one of: "
+            f"{list(_UNIT_FACTORS.keys())}"
+        )
+    if unit == "px":
+        return 1.0
+    return px_area_ha * _UNIT_FACTORS[unit]
+
+
 def read_tiff(path: str | Path) -> tuple[np.ndarray, float, dict]:
     """
     Read any single-band GeoTIFF.
 
     Returns
     -------
-    arr          : float32 ndarray, shape (rows, cols)
-    px_area_ha   : pixel area in hectares
-    tags         : raw tag_v2 dict (pass to save_tifs for georef preservation)
+    arr        : float32 ndarray, shape (rows, cols)
+    px_area_ha : pixel area in hectares
+    tags       : raw tag_v2 dict
     """
     img  = Image.open(str(path))
     arr  = np.array(img, dtype=np.float32)
@@ -45,9 +80,9 @@ def read_lulc(path: str | Path) -> tuple[np.ndarray, float, dict]:
 
     Returns
     -------
-    arr          : uint8 ndarray, shape (rows, cols)
-    px_area_ha   : pixel area in hectares
-    tags         : raw tag_v2 dict
+    arr        : uint8 ndarray, shape (rows, cols)
+    px_area_ha : pixel area in hectares
+    tags       : raw tag_v2 dict
     """
     img  = Image.open(str(path))
     arr  = np.array(img, dtype=np.uint8)
@@ -56,10 +91,10 @@ def read_lulc(path: str | Path) -> tuple[np.ndarray, float, dict]:
 
 
 def save_tifs(
-    maps: list[np.ndarray],
+    maps:       list[np.ndarray],
     start_year: int,
-    src_tags: dict,
-    out_dir: str | Path,
+    src_tags:   dict,
+    out_dir:    str | Path,
 ) -> None:
     """
     Save a list of LULC arrays as georeferenced GeoTIFFs.
@@ -81,6 +116,9 @@ def save_tifs(
     for t, arr in enumerate(maps):
         year     = start_year + t
         out_path = out_dir / f"lulc_{year}.tif"
+        save_kwargs = {"compression": "lzw"}
+        if keep_tags:
+            save_kwargs["tiffinfo"] = keep_tags
         Image.fromarray(arr.astype(np.uint8), mode="L").save(
-            str(out_path), tiffinfo=keep_tags, compression="lzw"
+            str(out_path), **save_kwargs
         )

@@ -1,8 +1,8 @@
 """
-strategicc/config.py
---------------------
+strategicc/config.py  —  v2.2
+------------------------------
 Runtime configuration: file paths, toggles, and tuning constants.
-Edit this file (or override at runtime) to point at your data.
+Edit this file (or override at runtime in Colab) to point at your data.
 """
 
 from pathlib import Path
@@ -18,7 +18,7 @@ TRANSITIONS_CSV          = Path("inputs/Transitions.csv")
 SPATIAL_MULT_CSV         = Path("inputs/TransitionSpatialMultipliers.csv")
 TRANSITION_MULT_CSV      = Path("inputs/TransitionMultipliers.csv")
 
-# SEEA-EA input (v2.0)
+# SEEA-EA input
 ECOSYSTEM_SERVICES_CSV   = Path("inputs/EcosystemServices.csv")
 
 # ── Simulation settings ───────────────────────────────────────────────────────
@@ -27,11 +27,18 @@ N_TIMESTEPS  = 10
 N_ITERATIONS = 10
 RNG_SEED     = 42
 
+# ── Area unit  (v2.2) ─────────────────────────────────────────────────────────
+# Controls the unit used in ALL area outputs: area tables, SEEA accounts, plots.
+#   "ha"  — hectares          (default; px_area_ha × 1.0)
+#   "km2" — square kilometres (px_area_ha × 0.01)
+#   "px"  — raw pixel count   (1 pixel = 1 unit, ignores pixel size)
+AREA_UNIT = "ha"
+
 # ── Feature toggles ───────────────────────────────────────────────────────────
 USE_ADJACENCY        = True
 USE_SPATIAL_MULT     = True
 USE_TRANS_MULTIPLIER = True
-USE_SEEA             = True    # v2.0 — run ecosystem accounting after simulation
+USE_SEEA             = True
 
 # ── Adjacency tuning ──────────────────────────────────────────────────────────
 ADJACENCY_STRENGTH = 4.0
