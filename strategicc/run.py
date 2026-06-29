@@ -27,7 +27,7 @@ Workflow
 """
 
 from pathlib import Path
-from strategicc import STSMEngine
+from strategicc import StrategiccEngine
 from strategicc import outputs
 from strategicc.accounting.seea import SEEAAccount
 from strategicc.accounting import outputs as seea_outputs
