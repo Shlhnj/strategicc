@@ -21,6 +21,19 @@ TRANSITION_MULT_CSV      = Path("inputs/TransitionMultipliers.csv")
 # SEEA-EA input
 ECOSYSTEM_SERVICES_CSV   = Path("inputs/EcosystemServices.csv")
 
+# ── Age tracking  (v2.3) ──────────────────────────────────────────────────────
+# Set USE_AGE = True to enable age tracking in the simulation engine.
+# Requires either:
+#   (a) AGE_RASTER_PATH — a TIF with per-cell age at t=0, OR
+#   (b) AGE_INITIAL_CSV — a CSV with assumed starting age per class
+#       (used when no raster is available)
+USE_AGE              = True
+AGE_RASTER_PATH      = Path("inputs/age.tif")       # set to None to use CSV
+AGE_INITIAL_CSV      = Path("inputs/InitialAge.csv") # fallback if no raster
+
+# Whether to save age rasters per timestep per iteration
+SAVE_AGE_RASTERS     = True
+
 # ── Simulation settings ───────────────────────────────────────────────────────
 START_YEAR   = 2022
 N_TIMESTEPS  = 10

@@ -1,0 +1,8 @@
+StateClassId,AgeMean,AgeSD,AgeMin,AgeMax
+Mangrove,20,10,5,50
+Other_vegetation,10,5,2,25
+Tidal_flat,5,3,1,15
+Cropland,3,2,1,10
+Aquaculture,3,2,1,10
+Settlement,5,3,1,20
+Water_body,0,0,0,0

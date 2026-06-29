@@ -34,15 +34,16 @@ class StateClass:
 @dataclass
 class TransitionRule:
     """One probabilistic transition row from Transitions.csv."""
-    from_class:  str        # StateClassIdSource  e.g. "Mangrove:All"
-    to_class:    str        # StateClassIdDest
-    group:       str        # TransitionTypeId    e.g. "Inundation"
-    probability: float
-    # Optional ST-Sim fields (kept for future use)
-    iteration:   int | None = None
-    timestep:    int | None = None
-    age_min:     int | None = None
-    age_max:     int | None = None
+    from_class:    str
+    to_class:      str
+    group:         str
+    probability:   float
+    iteration:     int | None = None
+    timestep:      int | None = None
+    age_min:       int | None = None
+    age_max:       int | None = None
+    age_reset:     bool       = True    # v2.3 — reset age to 0 on transition
+    age_relative:  int | None = None    # v2.3 — relative age after transition
 
 
 @dataclass
@@ -174,14 +175,16 @@ def load_transitions(path: str | Path) -> list[TransitionRule]:
                 continue
 
             rules.append(TransitionRule(
-                from_class  = from_cls,
-                to_class    = to_cls,
-                group       = group,
-                probability = prob,
-                iteration   = _parse_int_or_none(row.get("Iteration", "")),
-                timestep    = _parse_int_or_none(row.get("Timestep", "")),
-                age_min     = _parse_int_or_none(row.get("AgeMin", "")),
-                age_max     = _parse_int_or_none(row.get("AgeMax", "")),
+                from_class    = from_cls,
+                to_class      = to_cls,
+                group         = group,
+                probability   = prob,
+                iteration     = _parse_int_or_none(row.get("Iteration", "")),
+                timestep      = _parse_int_or_none(row.get("Timestep", "")),
+                age_min       = _parse_int_or_none(row.get("AgeMin", "")),
+                age_max       = _parse_int_or_none(row.get("AgeMax", "")),
+                age_reset     = row.get("AgeReset", "").strip().lower() != "no",
+                age_relative  = _parse_int_or_none(row.get("AgeRelative", "")),
             ))
 
     return rules
@@ -267,4 +270,57 @@ def load_transition_multipliers(path: str | Path) -> list[TransitionMultiplierRu
             ))
 
     print(f"  {len(rules)} transition multiplier rule(s) loaded")
+    return rules
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Initial age assumptions  (v2.3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class InitialAgeRule:
+    """
+    One row from InitialAge.csv — assumed starting age per class when no
+    age raster is available.
+
+    Expected columns:
+        StateClassId, AgeMean, AgeSD, AgeMin, AgeMax
+
+    AgeMean / AgeSD define a truncated normal distribution sampled per cell.
+    AgeMin / AgeMax are hard clamps (defaults: 0 / 999).
+    """
+    state_class: str
+    age_mean:    float
+    age_sd:      float  = 0.0
+    age_min:     int    = 0
+    age_max:     int    = 999
+
+
+def load_initial_age_rules(path: str | Path) -> list[InitialAgeRule]:
+    """
+    Parse InitialAge.csv.
+
+    Returns
+    -------
+    list of InitialAgeRule, one per state class row
+    """
+    path  = Path(path)
+    rules: list[InitialAgeRule] = []
+
+    with path.open(newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            cls_name = row.get("StateClassId", "").strip()
+            mean_raw = _parse_float_or_none(row.get("AgeMean", ""))
+            if not cls_name or mean_raw is None:
+                continue
+            rules.append(InitialAgeRule(
+                state_class = cls_name,
+                age_mean    = mean_raw,
+                age_sd      = float(row.get("AgeSD",  "0").strip() or 0),
+                age_min     = int(  row.get("AgeMin", "0").strip() or 0),
+                age_max     = int(  row.get("AgeMax", "999").strip() or 999),
+            ))
+
+    print(f"  {len(rules)} initial age rule(s) loaded")
     return rules
