@@ -122,3 +122,58 @@ def save_tifs(
         Image.fromarray(arr.astype(np.uint8), mode="L").save(
             str(out_path), **save_kwargs
         )
+
+
+def resolve_mult_dir(mult_dir: str | Path) -> Path:
+    """
+    Resolve a spatial multiplier directory path, transparently supporting
+    a zipped multiplier set (v3.4).
+
+    If `mult_dir` points at an existing .zip file, it is extracted ONCE
+    to a sibling folder (same stem, no extension — e.g.
+    "spatmult_uploads.zip" -> "spatmult_uploads/") and that folder's path
+    is returned. If the sibling folder already exists with content,
+    extraction is skipped (treated as already-extracted). If `mult_dir`
+    is already a folder, it is returned unchanged — no zip handling
+    needed.
+
+    Parameters
+    ----------
+    mult_dir : path to either a folder of multiplier rasters, or a .zip
+               file containing them
+
+    Returns
+    -------
+    Path to a folder containing the multiplier rasters
+    """
+    import zipfile
+
+    mult_dir = Path(mult_dir)
+
+    if mult_dir.is_dir():
+        return mult_dir
+
+    if mult_dir.suffix.lower() == ".zip" and mult_dir.exists():
+        sibling_dir = mult_dir.with_suffix("")
+
+        if sibling_dir.is_dir() and any(sibling_dir.iterdir()):
+            print(f"  [Cache hit] '{sibling_dir}' already extracted from "
+                  f"'{mult_dir}' — skipping re-extraction.")
+            return sibling_dir
+
+        sibling_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(mult_dir, "r") as z:
+            z.extractall(sibling_dir)
+
+        # If the zip contained a single subfolder, descend into it
+        entries = [p for p in sibling_dir.iterdir()
+                   if not p.name.startswith("__MACOSX")]
+        if len(entries) == 1 and entries[0].is_dir():
+            sibling_dir = entries[0]
+
+        print(f"  Extracted multiplier zip '{mult_dir}' -> '{sibling_dir}'")
+        return sibling_dir
+
+    # Neither an existing folder nor a zip — return as-is, let the
+    # downstream loader raise a clear "not found" error for missing files.
+    return mult_dir

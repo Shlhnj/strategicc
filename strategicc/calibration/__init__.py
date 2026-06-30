@@ -15,7 +15,10 @@ These tools require the optional `rasterio` dependency:
     pip install strategicc[calibration]
 """
 
-from .loader import load_lulc_timeseries, LULCTimeSeries
+from .loader import (
+    load_lulc_timeseries, LULCTimeSeries,
+    extract_initial_state_class, extract_lulc_zip_to_folder,
+)
 from .age import compute_age_raster
 from .transitions import compute_transition_rates
 from .temporal import compute_temporal_distribution
@@ -23,6 +26,8 @@ from .temporal import compute_temporal_distribution
 __all__ = [
     "load_lulc_timeseries",
     "LULCTimeSeries",
+    "extract_initial_state_class",
+    "extract_lulc_zip_to_folder",
     "compute_age_raster",
     "compute_transition_rates",
     "compute_temporal_distribution",

@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from strategicc import config
-from strategicc.io.raster     import read_lulc, save_tifs, get_pixel_area, UNIT_LABELS
+from strategicc.io.raster     import read_lulc, save_tifs, get_pixel_area, UNIT_LABELS, resolve_mult_dir
 from strategicc.io.csv_loader import (
     load_state_classes,
     load_transitions,
@@ -209,6 +209,25 @@ class StrategiccEngine:
 
     def load(self) -> None:
         """Load all inputs (raster + CSVs). Call before run()."""
+
+        # ── Fetch initial state class from historical LULC zip (v3.4) ────
+        if config.FETCH_INITIAL_SC_FROM_ZIP:
+            print("\n[0] Fetching initial state class from historical LULC zip...")
+            try:
+                from strategicc.calibration import extract_initial_state_class
+            except ImportError as e:
+                raise ImportError(
+                    "FETCH_INITIAL_SC_FROM_ZIP=True requires the optional "
+                    "rasterio dependency. Install with: pip install rasterio"
+                ) from e
+
+            extract_dir = Path("inputs") / "lulc_annual"
+            self.lulc_path = extract_initial_state_class(
+                zip_path    = config.LULC_ZIP_PATH,
+                year        = config.INITIAL_SC_YEAR,
+                extract_dir = extract_dir,
+            )
+
         print("\n[1] Reading LULC raster...")
         lulc, self.px_area_ha, self.src_tags = read_lulc(self.lulc_path)
         self._initial_lulc = lulc
@@ -234,8 +253,9 @@ class StrategiccEngine:
         print("\n[4] Loading spatial multipliers...")
         if self.use_spatial_mult:
             entries = load_spatial_mult_index(self.spatial_mult_csv)
+            resolved_mult_dir = resolve_mult_dir(self.mult_dir)   # v3.4 — zip support
             self.spatial_mults = load_spatial_multipliers(
-                entries, self.mult_dir, lulc.shape
+                entries, resolved_mult_dir, lulc.shape
             )
         else:
             print("  [Skipped — USE_SPATIAL_MULT=False]")

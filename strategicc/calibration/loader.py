@@ -208,3 +208,94 @@ def load_lulc_timeseries(
           f"({len(annual_years)} annual layers, shape={stack.shape[1:]})")
 
     return LULCTimeSeries(stack=stack, years=annual_years, profile=profile)
+
+
+def extract_lulc_zip_to_folder(
+    zip_path:     str | Path,
+    extract_dir:  str | Path,
+    force:        bool = False,
+) -> dict[int, Path]:
+    """
+    Extract an ENTIRE historical LULC zip into a persistent folder (v3.4),
+    rather than a temporary scratch directory. All years become available
+    on disk for reuse — by the calibration module, by repeated initial-state
+    selection with different years, or for manual inspection — without
+    re-extracting the zip each time.
+
+    Parameters
+    ----------
+    zip_path    : path to the historical LULC zip (AUTO-detected filenames)
+    extract_dir : persistent destination folder (e.g. inputs/lulc_annual/).
+                  Created if it doesn't exist.
+    force       : if True, re-extract even if the folder already appears
+                  populated with detectable yearly TIFs
+
+    Returns
+    -------
+    dict[year, Path] — same mapping _auto_detect_years() would produce,
+    now pointing at files inside the persistent extract_dir
+    """
+    extract_dir = Path(extract_dir)
+    extract_dir.mkdir(parents=True, exist_ok=True)
+
+    if not force:
+        try:
+            existing = _auto_detect_years(extract_dir)
+        except ValueError:
+            existing = {}   # empty/unpopulated folder — not yet extracted
+        if existing:
+            print(f"  [Cache hit] '{extract_dir}' already contains "
+                  f"{len(existing)} detectable year(s) — skipping "
+                  f"re-extraction. Pass force=True to re-extract.")
+            return existing
+
+    tif_dir = _extract_zip(zip_path, extract_dir)
+    year_to_path = _auto_detect_years(tif_dir)
+
+    print(f"  Extracted {len(year_to_path)} year(s) from '{zip_path}' "
+          f"-> persistent folder '{extract_dir}'")
+    return year_to_path
+
+
+def extract_initial_state_class(
+    zip_path:     str | Path,
+    year:         int,
+    extract_dir:  str | Path,
+    force:        bool = False,
+) -> Path:
+    """
+    Select one year's LULC raster as the simulation's initial state class
+    raster, extracting the FULL historical zip to a persistent folder if
+    not already extracted (v3.4 — changed from single-file caching to
+    full-folder extraction, so all years remain available afterward).
+
+    Parameters
+    ----------
+    zip_path    : path to the historical LULC zip
+    year        : the year to use as the initial state class raster
+    extract_dir : persistent folder for the full annual extraction
+                  (e.g. inputs/lulc_annual/)
+    force       : if True, re-extract the zip even if extract_dir already
+                  appears populated
+
+    Returns
+    -------
+    Path to that year's raster within extract_dir
+
+    Raises
+    ------
+    ValueError : if `year` is not found in the zip's detected year range
+    """
+    year_to_path = extract_lulc_zip_to_folder(zip_path, extract_dir, force=force)
+
+    if year not in year_to_path:
+        available = sorted(year_to_path.keys())
+        raise ValueError(
+            f"Year {year} not found in zip '{zip_path}'. "
+            f"Available years: {available[0]}–{available[-1]} "
+            f"({len(available)} total)."
+        )
+
+    selected = year_to_path[year]
+    print(f"  Initial state class for year {year}: '{selected}'")
+    return selected

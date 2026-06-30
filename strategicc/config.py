@@ -34,6 +34,16 @@ TRANSITION_TYPE_CSV      = Path("inputs/TransitionType.csv")
 
 ECOSYSTEM_SERVICES_CSV   = Path("inputs/EcosystemServices.csv")
 
+# ── Initial state class from historical LULC zip (v3.4) ──────────────────────
+# When enabled, the initial LULC raster (normally LULC_PATH / StateClassFileName)
+# is instead extracted from a historical LULC time-series zip — the same format
+# the calibration module consumes (strategicc.calibration.load_lulc_timeseries).
+# The extracted year is cached to disk under inputs/ so subsequent runs skip
+# re-extraction.
+FETCH_INITIAL_SC_FROM_ZIP = False
+LULC_ZIP_PATH             = Path("inputs/annual_lulc_1985_2022.zip")
+INITIAL_SC_YEAR           = 2022
+
 # ── Age tracking ───────────────────────────────────────────────────────────────
 USE_AGE              = True
 AGE_RASTER_PATH      = Path("inputs/age.tif")
@@ -151,6 +161,11 @@ _MANIFEST_SCHEMA: dict[str, tuple[str, str]] = {
     "StratumFileName":             ("PRIMARY_STRATUM_PATH", "path"),
     "SecondaryStratumFileName":    ("SECONDARY_STRATUM_PATH", "path"),
     "TertiaryStratumFileName":     ("TERTIARY_STRATUM_PATH", "path"),
+
+    # Section 1b — Initial state class from historical LULC zip (v3.4)
+    "FetchInitialStateClassFromZip": ("FETCH_INITIAL_SC_FROM_ZIP", "bool"),
+    "LULCZipPath":                    ("LULC_ZIP_PATH", "path"),
+    "InitialStateClassYear":           ("INITIAL_SC_YEAR", "int"),
 
     # Section 2 — Multi-row CSV inputs
     "STATE_CLASSES_CSV":                  ("STATE_CLASSES_CSV", "path"),

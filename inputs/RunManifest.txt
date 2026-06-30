@@ -38,11 +38,15 @@
 #================================================================
 #SECTION 1 - INITIAL CONDITIONS (SPATIAL)
 #================================================================
-StateClassFileName        = 2022.tif              #path  (the initial LULC raster)
+StateClassFileName        = 2022.tif              #path  (the initial LULC raster; ignored if FetchInitialStateClassFromZip=True)
 AgeFileName                = 2022_age.tif          #path  (initial age raster; blank if using AGE_INITIAL_CSV instead)
 StratumFileName             =                     #path  (blank = unused; not yet implemented)
 SecondaryStratumFileName     =                     #path  (blank = unused)
 TertiaryStratumFileName       =                     #path  (blank = unused)
+
+FetchInitialStateClassFromZip  = False                                    #bool  (if True, ignore StateClassFileName and pull the initial raster from a historical LULC zip instead)
+LULCZipPath                     = inputs/annual_lulc_1985_2022.zip          #path  (only used if FetchInitialStateClassFromZip=True; extracted ONCE to inputs/lulc_annual/, all years persisted)
+InitialStateClassYear            = 2022                                      #int   (which year within the zip to use as the initial raster)
 
 
 #================================================================
@@ -59,7 +63,7 @@ TRANSITION_SIZE_CSV                      = inputs/Transition Size Distribution.c
 TRANSITION_ADJACENCY_SETTING_CSV          = inputs/Transition Adjacency Setting.csv       #path
 TRANSITION_ADJACENCY_MULT_CSV              = inputs/Transition Adjacency Multipliers.csv  #path
 TERMINOLOGY_CSV                             = inputs/Terminology.csv                       #path
-MULT_DIR                                     = spatmult_uploads/                            #path  (folder containing Transition Spatial Multiplier rasters)
+MULT_DIR                                     = spatmult_uploads/                            #path  (folder OR .zip containing Transition Spatial Multiplier rasters; a .zip is auto-extracted once to a sibling folder)
 OUT_DIR                                       = strategicc_output/                           #path
 
 
