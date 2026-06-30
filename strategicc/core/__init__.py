@@ -9,6 +9,11 @@ from .age         import (
     age_gate_mask,
     save_age_tif,
 )
+from .patches import (
+    sample_patch_size_ha,
+    grow_patch,
+    grow_patches_for_group,
+)
 
 __all__ = [
     "build_transition_index",
@@ -22,4 +27,7 @@ __all__ = [
     "update_age",
     "age_gate_mask",
     "save_age_tif",
+    "sample_patch_size_ha",
+    "grow_patch",
+    "grow_patches_for_group",
 ]

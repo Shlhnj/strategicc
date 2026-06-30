@@ -324,3 +324,103 @@ def load_initial_age_rules(path: str | Path) -> list[InitialAgeRule]:
 
     print(f"  {len(rules)} initial age rule(s) loaded")
     return rules
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Transition size distribution  (v2.5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class TransitionSizeRule:
+    """
+    One row from TransitionSizeDistribution.csv — defines the historical
+    patch-size frequency table for a transition group.
+
+    Expected columns (ST-Sim format):
+        Transition Type/Group, Maximum Area (Hectares), Relative Amount
+
+    Each row is one BIN of the histogram: "Relative Amount" % of patches
+    fall in (0, Maximum Area] hectares, where bins are cumulative — i.e.
+    the previous row's Maximum Area is this bin's implicit lower bound.
+
+    Example:
+        Fire [Type], 1,    40   →  40% of patches are 0–1 ha
+        Fire [Type], 10,   30   →  30% of patches are 1–10 ha
+        Fire [Type], 100,  20   →  20% of patches are 10–100 ha
+        Fire [Type], 1000, 10   →  10% of patches are 100–1000 ha
+    """
+    group:          str
+    max_area_ha:    float
+    relative_amount: float
+
+
+def load_transition_size_rules(path: str | Path) -> list[TransitionSizeRule]:
+    """
+    Parse TransitionSizeDistribution.csv.
+
+    Groups present in this file are eligible for patch-growing in the
+    engine (v2.5); groups absent keep the independent-cell mechanic.
+
+    Returns
+    -------
+    list of TransitionSizeRule, ordered as they appear in the file
+    (order matters — bins are interpreted as cumulative ranges in
+    ascending Maximum Area order per group).
+    """
+    path  = Path(path)
+    rules: list[TransitionSizeRule] = []
+
+    with path.open(newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            group = _strip_type_suffix(
+                row.get("Transition Type/Group", "").strip()
+            )
+            max_area = _parse_float_or_none(row.get("Maximum Area (Hectares)", ""))
+            rel_amt  = _parse_float_or_none(row.get("Relative Amount", ""))
+
+            if not group or max_area is None or rel_amt is None:
+                continue
+
+            rules.append(TransitionSizeRule(
+                group           = group,
+                max_area_ha     = max_area,
+                relative_amount = rel_amt,
+            ))
+
+    n_groups = len(set(r.group for r in rules))
+    print(f"  {len(rules)} size distribution bin(s) loaded "
+          f"across {n_groups} group(s)")
+    return rules
+
+
+def group_size_bins(
+    rules: list[TransitionSizeRule],
+) -> dict[str, list[tuple[float, float, float]]]:
+    """
+    Convert a flat list of TransitionSizeRule into per-group cumulative bins.
+
+    Returns
+    -------
+    dict[group_name, list[(min_area_ha, max_area_ha, probability)]]
+    where probability is the normalised relative_amount (sums to 1.0 per group)
+    and min_area_ha is the previous row's max_area_ha (0.0 for the first bin).
+    """
+    by_group: dict[str, list[TransitionSizeRule]] = {}
+    for r in rules:
+        by_group.setdefault(r.group, []).append(r)
+
+    result: dict[str, list[tuple[float, float, float]]] = {}
+    for group, group_rules in by_group.items():
+        total = sum(r.relative_amount for r in group_rules)
+        if total <= 0:
+            continue
+        bins = []
+        prev_max = 0.0
+        for r in group_rules:
+            prob = r.relative_amount / total
+            bins.append((prev_max, r.max_area_ha, prob))
+            prev_max = r.max_area_ha
+        result[group] = bins
+
+    return result

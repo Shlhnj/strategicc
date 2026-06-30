@@ -34,6 +34,13 @@ AGE_INITIAL_CSV      = Path("inputs/InitialAge.csv") # fallback if no raster
 # Whether to save age rasters per timestep per iteration
 SAVE_AGE_RASTERS     = True
 
+# ── Transition size distribution  (v2.5) ──────────────────────────────────────
+# Groups present in this CSV use patch-growing (connected-component spread)
+# instead of independent-cell firing. Groups absent from the file keep the
+# existing independent-probability mechanic. Set path to None to disable
+# entirely (all groups fire independently, as in v2.4 and earlier).
+TRANSITION_SIZE_CSV  = Path("inputs/TransitionSizeDistribution.csv")
+
 # ── Simulation settings ───────────────────────────────────────────────────────
 START_YEAR   = 2022
 N_TIMESTEPS  = 10

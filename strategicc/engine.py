@@ -1,5 +1,5 @@
 """
-strategicc/engine.py  —  v2.3
+strategicc/engine.py  —  v2.5
 ------------------------------
 StrategiccEngine: main simulation class with multi-iteration support.
 
@@ -25,6 +25,8 @@ from strategicc.io.csv_loader import (
     load_spatial_mult_index,
     load_transition_multipliers,
     load_initial_age_rules,
+    load_transition_size_rules,
+    group_size_bins,
 )
 from strategicc.core.transitions import build_transition_index, TransitionRecord
 from strategicc.core.adjacency   import compute_neighbor_fractions
@@ -40,6 +42,7 @@ from strategicc.core.age import (
     age_gate_mask,
     save_age_tif,
 )
+from strategicc.core.patches import grow_patches_for_group
 from strategicc.accounting.csv_loader import load_ecosystem_services, EcosystemService
 
 
@@ -85,6 +88,7 @@ class StrategiccEngine:
         age_raster_path       = None,         # v2.3 Path | None
         age_initial_csv       = None,         # v2.3 Path | None
         save_age_rasters:     bool = False,   # v2.3
+        transition_size_csv   = None,         # v2.5 Path | None
     ) -> None:
         self.lulc_path               = Path(lulc_path)
         self.state_classes_csv       = Path(state_classes_csv)
@@ -107,6 +111,7 @@ class StrategiccEngine:
         self.age_raster_path         = Path(age_raster_path) if age_raster_path else None
         self.age_initial_csv         = Path(age_initial_csv) if age_initial_csv else None
         self.save_age_rasters        = save_age_rasters     # v2.3
+        self.transition_size_csv     = Path(transition_size_csv) if transition_size_csv else None  # v2.5
 
         # Populated by load()
         self.classes:             dict  = {}
@@ -120,6 +125,8 @@ class StrategiccEngine:
         self._initial_lulc:       np.ndarray | None = None
         self._initial_age:        np.ndarray | None = None   # v2.3
         self._age_rules:          list               = []    # v2.3
+        self._size_bins:          dict               = {}    # v2.5 — {group: bins}
+
 
         # Populated by run()
         self.iter_dirs: list[Path] = []
@@ -149,6 +156,7 @@ class StrategiccEngine:
             age_raster_path        = config.AGE_RASTER_PATH,
             age_initial_csv        = config.AGE_INITIAL_CSV,
             save_age_rasters       = config.SAVE_AGE_RASTERS,
+            transition_size_csv    = config.TRANSITION_SIZE_CSV,
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -234,6 +242,16 @@ class StrategiccEngine:
         else:
             print("  [Skipped — USE_AGE=False]")
 
+        print("\n[8] Loading transition size distribution...")
+        if self.transition_size_csv and self.transition_size_csv.exists():
+            size_rules    = load_transition_size_rules(self.transition_size_csv)
+            self._size_bins = group_size_bins(size_rules)
+            if self._size_bins:
+                print(f"  Patch-growing enabled for: {list(self._size_bins.keys())}")
+        else:
+            print("  [Skipped — no TransitionSizeDistribution.csv found; "
+                  "all groups use independent-cell firing]")
+
     def run(self) -> None:
         """
         Run all iterations. Each iteration is saved to its own subfolder.
@@ -246,9 +264,10 @@ class StrategiccEngine:
             f"adjacency={'ON' if self.use_adjacency else 'OFF'}  "
             f"spatial_mult={'ON' if self.use_spatial_mult else 'OFF'}  "
             f"trans_mult={'ON' if self.use_trans_multiplier else 'OFF'}  "
-            f"age={'ON' if self.use_age else 'OFF'}"
+            f"age={'ON' if self.use_age else 'OFF'}  "
+            f"size_dist={'ON' if self._size_bins else 'OFF'}"
         )
-        print(f"\n[8] Running {self.n_iterations} iteration(s)  ({flags})")
+        print(f"\n[9] Running {self.n_iterations} iteration(s)  ({flags})")
 
         self.iter_dirs = []
 
@@ -434,16 +453,32 @@ class StrategiccEngine:
                     if not eligible.any():
                         continue
 
-                    # 7. Cap against remaining budget
-                    remaining = np.clip(1.0 - cum_prob, 0.0, 1.0)
-                    p_capped  = np.minimum(p_eff, remaining)
+                    # 7/8. Fire — branch on whether this group uses
+                    # patch-growing (v2.5) or independent-cell firing
+                    if group in self._size_bins:
+                        fire = grow_patches_for_group(
+                            p_eff      = p_eff,
+                            eligible   = eligible,
+                            size_bins  = self._size_bins[group],
+                            px_area_ha = self.px_area_ha,
+                            rng        = rng,
+                        )
+                        # Patches consume the full budget mass of the
+                        # cells they claim — credit cum_prob accordingly
+                        # so other groups competing for the same cells
+                        # this timestep see a consistent picture.
+                        cum_prob[fire] += p_eff[fire]
+                    else:
+                        # Cap against remaining budget
+                        remaining = np.clip(1.0 - cum_prob, 0.0, 1.0)
+                        p_capped  = np.minimum(p_eff, remaining)
 
-                    # 8. Fire
-                    fire = (
-                        eligible
-                        & (draws >= cum_prob)
-                        & (draws < cum_prob + p_capped)
-                    )
+                        fire = (
+                            eligible
+                            & (draws >= cum_prob)
+                            & (draws < cum_prob + p_capped)
+                        )
+                        cum_prob[fire] += p_capped[fire]
 
                     fired_r, fired_c = np.where(fire)
                     for r, c in zip(fired_r, fired_c):
@@ -453,7 +488,6 @@ class StrategiccEngine:
                         )
 
                     new_map[fire]          = to_id
-                    cum_prob[fire]        += p_capped[fire]
                     transition_fired[fire] = True
 
                     # 9. Record age reset behaviour (v2.3)
