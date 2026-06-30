@@ -1,0 +1,193 @@
+```
+#================================================================
+#STRATEGICC — RunManifest.txt
+#================================================================
+#This file is the single master entry point for a STRATEGICC run.
+#It holds all scalar configuration (paths, run control, toggles)
+#that can otherwise be set directly in config.py as Python
+#assignments.
+
+#TWO MUTUALLY EXCLUSIVE MODES
+#-----------------------------
+#(1) CSV mode    - config.load_manifest("RunManifest.txt") reads this
+#                   file. ALL settings come from here. No cfg.XXX = ...
+#                   assignments are made afterward in the same run.
+#(2) Direct mode - config.py is used as-is; every value is set via
+#                   Python cfg.XXX = ... assignments. This file is
+#                   not read at all.
+
+#Both modes populate the EXACT SAME internal config dict - only the
+#population mechanism differs.
+
+#FORMAT
+#------
+#  Variable = Value          # Type hint and description
+#Lines starting with # are comments. Blank lines are ignored.
+#The #type hints shown below are for human reference only - the
+#parser uses a fixed internal schema to determine how each Variable
+#is cast, so the hint text itself is not parsed.
+
+  #int    -> whole number
+  #float  -> decimal number
+  #bool   -> True / False  (Yes/No also accepted)
+  #path   -> file or folder path (relative to working directory)
+  #str    -> plain text
+
+```
+
+#================================================================
+#SECTION 1 - INITIAL CONDITIONS (SPATIAL)
+#================================================================
+StateClassFileName        = 2022.tif              #path  (the initial LULC raster)
+AgeFileName                = 2022_age.tif          #path  (initial age raster; blank if using AGE_INITIAL_CSV instead)
+StratumFileName             =                     #path  (blank = unused; not yet implemented)
+SecondaryStratumFileName     =                     #path  (blank = unused)
+TertiaryStratumFileName       =                     #path  (blank = unused)
+
+
+#================================================================
+#SECTION 2 - MULTI-ROW CSV INPUTS (paths to per-pathway/per-group tables)
+#================================================================
+STATE_CLASSES_CSV                   = inputs/State Class.csv                       #path
+TRANSITIONS_CSV                      = inputs/Transitions.csv                       #path
+SPATIAL_MULT_CSV                     = inputs/TransitionSpatialMultipliers.csv      #path
+TRANSITION_MULT_CSV                   = inputs/Transition Multiplier.csv             #path
+TRANSITION_TYPE_CSV                   = inputs/Transition Type.csv                   #path
+ECOSYSTEM_SERVICES_CSV                 = inputs/EcosystemServices.csv                 #path
+AGE_INITIAL_CSV                         = inputs/InitialAge.csv                        #path
+TRANSITION_SIZE_CSV                      = inputs/Transition Size Distribution.csv      #path
+TRANSITION_ADJACENCY_SETTING_CSV          = inputs/Transition Adjacency Setting.csv       #path
+TRANSITION_ADJACENCY_MULT_CSV              = inputs/Transition Adjacency Multipliers.csv  #path
+TERMINOLOGY_CSV                             = inputs/Terminology.csv                       #path
+MULT_DIR                                     = spatmult_uploads/                            #path  (folder containing Transition Spatial Multiplier rasters)
+OUT_DIR                                       = strategicc_output/                           #path
+
+
+#================================================================
+#SECTION 3 - RUN CONTROL
+#================================================================
+START_YEAR     = 2022   #int
+N_TIMESTEPS    = 20     #int
+N_ITERATIONS   = 100    #int
+RNG_SEED       = 42     #int
+AREA_UNIT      = ha     #str    (ha | km2 | px)
+
+
+#================================================================
+#SECTION 4 - FEATURE TOGGLES
+#================================================================
+USE_ADJACENCY          = True   #bool
+USE_SPATIAL_MULT        = True   #bool
+USE_TRANS_MULTIPLIER     = True   #bool
+USE_SEEA                  = True   #bool
+USE_AGE                    = True   #bool
+SAVE_AGE_RASTERS            = True   #bool
+
+
+#================================================================
+#SECTION 5 - OUTPUT OPTIONS (NON-SPATIAL)
+#================================================================
+SummaryOutputSC            = Yes   #bool  (save state-class area summary table)
+SummaryOutputSCTimesteps    = 1     #int   (save every N timesteps)
+SummaryOutputTR              = Yes   #bool  (save transition summary / log)
+SummaryOutputTRTimesteps      = 1     #int
+
+
+#================================================================
+#SECTION 6 - OUTPUT OPTIONS (SPATIAL)
+#================================================================
+RasterOutputSC                        = Yes   #bool  (save state-class raster per timestep)
+RasterOutputSCTimesteps                = 1     #int
+RasterOutputAge                         = Yes   #bool  (save age raster per timestep)
+RasterOutputAgeTimesteps                 = 1     #int
+RasterOutputTransitionEvents              = Yes   #bool  (save transition event raster)
+RasterOutputTransitionEventTimesteps       = 1     #int
+
+```
+#================================================================
+#APPENDIX - FILLED EXAMPLE FOR EACH REFERENCED CSV
+#================================================================
+#Below is one representative filled row for every multi-row CSV pointed
+#to by Section 2 above, so the manifest is self-documenting about what
+#each referenced file actually contains.
+
+#----------------------------------------------------------------
+#State Class.csv
+#----------------------------------------------------------------
+#Name,StateLabelXId,StateLabelYId,Id,Color,Legend,Description,IsAutoName
+#Mangrove:All,Mangrove,All,3,"255,0,100,0",,,No
+
+#----------------------------------------------------------------
+#Transitions.csv
+#----------------------------------------------------------------
+#Iteration,Timestep,StratumIdSource,StateClassIdSource,StratumIdDest,StateClassIdDest,SecondaryStratumId,TertiaryStratumId,TransitionTypeId,Probability,Proportion,AgeMin,AgeMax,AgeRelative,AgeReset,TSTMin,TSTMax,TSTRelative
+#,,,Mangrove:All,,Aquaculture:All,,,Aquaculture_expansion,0.017282,,,,,,,,
+
+#----------------------------------------------------------------
+#TransitionSpatialMultipliers.csv
+#----------------------------------------------------------------
+#Iteration,Timestep,TransitionGroupId,TransitionMultiplierTypeId,MultiplierFileName
+#,,Mangrove_recruitment [Type],,25062026_sdmnt_mult_4.tif
+
+#----------------------------------------------------------------
+#Transition Multiplier.csv
+#----------------------------------------------------------------
+#Iteration,Timestep,StratumId,SecondaryStratumId,TertiaryStratumId,StateClassId,AgeMin,AgeMax,TSTGroupId,TSTMin,TSTMax,TransitionGroupId,TransitionMultiplierTypeId,Amount,DistributionType,DistributionFrequencyId,DistributionSD,DistributionMin,DistributionMax
+#,,,,,,,,,,,Aquaculture_expansion [Type],,,Uniform,Iteration and Timestep,,0.33,0.5
+
+#----------------------------------------------------------------
+#Transition Type.csv
+#----------------------------------------------------------------
+#Name,Id,Color,Legend,Description
+#Aquaculture_expansion,5,"255,255,0,255",,
+
+#----------------------------------------------------------------
+#EcosystemServices.csv
+#----------------------------------------------------------------
+#StateClassId,ServiceName,ServiceType,ValuePerHa,Currency,PhysicalUnit,PhysicalValuePerHa
+#Mangrove,Carbon Sequestration,Regulating,97500000,IDR,MgC/ha,1300
+
+#----------------------------------------------------------------
+#InitialAge.csv
+#----------------------------------------------------------------
+#StateClassId,AgeMean,AgeSD,AgeMin,AgeMax
+#Mangrove,20,10,5,50
+
+#----------------------------------------------------------------
+#Transition Size Distribution.csv
+#----------------------------------------------------------------
+#Iteration,Timestep,StratumId,TransitionGroupId,MaximumArea,RelativeAmount
+#,,,Aquaculture_expansion,0.0318,1
+
+#----------------------------------------------------------------
+#Transition Adjacency Setting.csv
+#----------------------------------------------------------------
+#TransitionGroupId,StateClassId,StateAttributeTypeId,NeighborhoodRadius,UpdateFrequency
+#Aquaculture_expansion,,,,
+# StateClassId, StateAttributeTypeId, NeighborhoodRadius, and
+# UpdateFrequency are all optional. A row with only TransitionGroupId
+# filled (rest blank) is valid and means "this group uses adjacency
+# multipliers without any attribute-based neighborhood condition" -
+# the simple scalar case.
+
+#----------------------------------------------------------------
+#Transition Adjacency Multipliers.csv
+#----------------------------------------------------------------
+#Iteration,Timestep,StratumId,SecondaryStratumId,TertiaryStratumId,TransitionGroupId,AttributeValue,Amount,DistributionType,DistributionFrequencyId,DistributionSD,DistributionMin,DistributionMax
+#,,,,,Aquaculture_expansion,,4.0,,,,,
+# AttributeValue is optional. Left blank, this row applies as a flat
+# multiplier (Amount=4.0) for the group regardless of neighborhood
+# condition - equivalent to a per-group adjacency strength setting.
+# If AttributeValue IS populated across multiple rows for the same
+# group, the model instead performs an interpolated lookup against
+# the average attribute value within NeighborhoodRadius (requires
+# Transition Adjacency Setting plus a defined attribute type/value
+# table - a separate, larger feature, not required for the simple
+# case above).
+
+#----------------------------------------------------------------
+#Terminology.csv
+#----------------------------------------------------------------
+#AmountLabel,AmountUnits,StateLabelX,StateLabelY,PrimaryStratumLabel,SecondaryStratumLabel,TertiaryStratumLabel,TimestepUnits,StockUnits
+#area,hectares,Class,Subclass,Primary Stratum,Secondary Stratum,Tertiary Stratum,Year,Tons
+```
