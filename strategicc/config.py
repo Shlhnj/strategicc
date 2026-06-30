@@ -109,6 +109,31 @@ RASTER_OUTPUT_AGE_TIMESTEPS               = 1
 RASTER_OUTPUT_TRANSITION_EVENTS           = True
 RASTER_OUTPUT_TRANSITION_EVENT_TIMESTEPS  = 1
 
+# ── Stock & Flow (v3.2) ────────────────────────────────────────────────────────
+# Set USE_STOCKFLOW = True to enable per-cell carbon (or other material)
+# stock and flow tracking. Requires all CSVs below to be present.
+USE_STOCKFLOW = False
+
+STOCK_TYPE_CSV                = Path("inputs/StockType.csv")
+STOCK_GROUP_CSV                = Path("inputs/StockGroup.csv")
+STOCK_GROUP_MEMBERSHIP_CSV      = Path("inputs/StockTypeGroupMembership.csv")
+FLOW_TYPE_CSV                    = Path("inputs/FlowType.csv")
+FLOW_ORDER_CSV                    = Path("inputs/FlowOrder.csv")
+FLOW_PATHWAYS_CSV                  = Path("inputs/FlowPathways.csv")
+FLOW_MULTIPLIER_CSV                 = Path("inputs/FlowMultiplier.csv")
+STATE_ATTRIBUTE_TYPE_CSV             = Path("inputs/StateAttributeType.csv")
+STATE_ATTRIBUTE_VALUES_CSV            = Path("inputs/StateAttributeValues.csv")
+INITIAL_STOCK_NON_SPATIAL_CSV          = Path("inputs/InitialStockNonSpatial.csv")
+
+# Whether to save per-timestep per-stock-type rasters to disk
+SAVE_STOCK_RASTERS = True
+
+# SEEA-EA valuation mode (v3.2):
+#   "area"        — current v2.2 behaviour: ValuePerHa x area (static)
+#   "stock_flow"  — pull carbon quantity from the Stock & Flow engine's
+#                   flow output instead of static PhysicalValuePerHa
+SEEA_VALUATION_MODE = "area"
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # MANIFEST LOADER  (v3.0)
@@ -171,6 +196,21 @@ _MANIFEST_SCHEMA: dict[str, tuple[str, str]] = {
     "RasterOutputAgeTimesteps":                ("RASTER_OUTPUT_AGE_TIMESTEPS", "int"),
     "RasterOutputTransitionEvents":             ("RASTER_OUTPUT_TRANSITION_EVENTS", "bool"),
     "RasterOutputTransitionEventTimesteps":      ("RASTER_OUTPUT_TRANSITION_EVENT_TIMESTEPS", "int"),
+
+    # Section 7 — Stock & Flow (v3.2)
+    "USE_STOCKFLOW":                  ("USE_STOCKFLOW", "bool"),
+    "STOCK_TYPE_CSV":                 ("STOCK_TYPE_CSV", "path"),
+    "STOCK_GROUP_CSV":                ("STOCK_GROUP_CSV", "path"),
+    "STOCK_GROUP_MEMBERSHIP_CSV":     ("STOCK_GROUP_MEMBERSHIP_CSV", "path"),
+    "FLOW_TYPE_CSV":                  ("FLOW_TYPE_CSV", "path"),
+    "FLOW_ORDER_CSV":                 ("FLOW_ORDER_CSV", "path"),
+    "FLOW_PATHWAYS_CSV":              ("FLOW_PATHWAYS_CSV", "path"),
+    "FLOW_MULTIPLIER_CSV":            ("FLOW_MULTIPLIER_CSV", "path"),
+    "STATE_ATTRIBUTE_TYPE_CSV":       ("STATE_ATTRIBUTE_TYPE_CSV", "path"),
+    "STATE_ATTRIBUTE_VALUES_CSV":     ("STATE_ATTRIBUTE_VALUES_CSV", "path"),
+    "INITIAL_STOCK_NON_SPATIAL_CSV":  ("INITIAL_STOCK_NON_SPATIAL_CSV", "path"),
+    "SAVE_STOCK_RASTERS":             ("SAVE_STOCK_RASTERS", "bool"),
+    "SEEA_VALUATION_MODE":            ("SEEA_VALUATION_MODE", "str"),
 }
 
 # Tracks whether load_manifest() has been called this session — used to

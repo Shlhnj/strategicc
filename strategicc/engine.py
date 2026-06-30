@@ -52,6 +52,14 @@ from strategicc.core.targets import (
     scale_probability_to_target,
     target_to_patch_budget,
 )
+from strategicc.stockflow import (
+    load_stock_types, load_flow_types, load_flow_order,
+    load_stock_groups, load_stock_group_membership,
+    load_state_attribute_types, load_state_attribute_values,
+    load_flow_pathways, load_flow_multipliers,
+    load_initial_stock_links,
+    init_stocks, run_flows_for_timestep, sample_flow_multipliers,
+)
 from strategicc.accounting.csv_loader import load_ecosystem_services, EcosystemService
 
 
@@ -101,6 +109,7 @@ class StrategiccEngine:
         transition_targets_csv = None,        # v3.1 Path | None
         transition_adjacency_setting_csv = None,    # v3.1 Path | None
         transition_adjacency_mult_csv    = None,    # v3.1 Path | None
+        use_stockflow:        bool = False,   # v3.2
     ) -> None:
         self.lulc_path               = Path(lulc_path)
         self.state_classes_csv       = Path(state_classes_csv)
@@ -131,6 +140,15 @@ class StrategiccEngine:
         self.transition_adjacency_mult_csv = (
             Path(transition_adjacency_mult_csv) if transition_adjacency_mult_csv else None
         )  # v3.1
+        self.use_stockflow = use_stockflow   # v3.2
+
+        # Populated by load() — Stock & Flow (v3.2)
+        self._stock_types:       list  = []
+        self._flow_pathways:     list  = []
+        self._flow_order:        dict  = {}
+        self._flow_mult_rules:   list  = []
+        self._state_attr_rules:  list  = []
+        self._initial_stock_links: dict = {}
 
         # Populated by load()
         self.classes:             dict  = {}
@@ -184,6 +202,7 @@ class StrategiccEngine:
             transition_targets_csv = config.TRANSITION_TARGETS_CSV,
             transition_adjacency_setting_csv = config.TRANSITION_ADJACENCY_SETTING_CSV,
             transition_adjacency_mult_csv    = config.TRANSITION_ADJACENCY_MULT_CSV,
+            use_stockflow           = config.USE_STOCKFLOW,
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -329,6 +348,40 @@ class StrategiccEngine:
                   "all groups use the global ADJACENCY_STRENGTH / "
                   "STRICT_EXPANSION_GROUPS scalar fallback]")
 
+        print("\n[11] Loading Stock & Flow inputs...")
+        if self.use_stockflow:
+            required = [
+                config.STOCK_TYPE_CSV, config.FLOW_TYPE_CSV,
+                config.FLOW_ORDER_CSV, config.FLOW_PATHWAYS_CSV,
+                config.STATE_ATTRIBUTE_VALUES_CSV,
+            ]
+            missing_files = [p for p in required if not p.exists()]
+            if missing_files:
+                print(f"  [Warning] USE_STOCKFLOW=True but missing required "
+                      f"file(s): {[str(p) for p in missing_files]} — "
+                      f"Stock & Flow disabled for this run.")
+                self.use_stockflow = False
+            else:
+                self._stock_types      = load_stock_types(config.STOCK_TYPE_CSV)
+                load_flow_types(config.FLOW_TYPE_CSV)   # validated, not retained
+                self._flow_order       = load_flow_order(config.FLOW_ORDER_CSV)
+                self._flow_pathways    = load_flow_pathways(config.FLOW_PATHWAYS_CSV)
+                self._state_attr_rules = load_state_attribute_values(
+                    config.STATE_ATTRIBUTE_VALUES_CSV
+                )
+                if config.FLOW_MULTIPLIER_CSV.exists():
+                    self._flow_mult_rules = load_flow_multipliers(
+                        config.FLOW_MULTIPLIER_CSV
+                    )
+                if config.INITIAL_STOCK_NON_SPATIAL_CSV.exists():
+                    self._initial_stock_links = load_initial_stock_links(
+                        config.INITIAL_STOCK_NON_SPATIAL_CSV
+                    )
+                print(f"  Stock & Flow active: {len(self._stock_types)} "
+                      f"stock type(s), {len(self._flow_pathways)} pathway(s)")
+        else:
+            print("  [Skipped — USE_STOCKFLOW=False]")
+
     def run(self) -> None:
         """
         Run all iterations. Each iteration is saved to its own subfolder.
@@ -343,9 +396,10 @@ class StrategiccEngine:
             f"trans_mult={'ON' if self.use_trans_multiplier else 'OFF'}  "
             f"age={'ON' if self.use_age else 'OFF'}  "
             f"size_dist={'ON' if self._size_bins else 'OFF'}  "
-            f"targets={'ON' if self._target_rules else 'OFF'}"
+            f"targets={'ON' if self._target_rules else 'OFF'}  "
+            f"stockflow={'ON' if self.use_stockflow else 'OFF'}"
         )
-        print(f"\n[11] Running {self.n_iterations} iteration(s)  ({flags})")
+        print(f"\n[12] Running {self.n_iterations} iteration(s)  ({flags})")
 
         self.iter_dirs = []
 
@@ -357,23 +411,61 @@ class StrategiccEngine:
             print(f"\n  ── Iteration {i + 1}/{self.n_iterations}  "
                   f"(seed={iter_seed}) ──")
 
-            maps, transitions, age_maps = self._run_single_iteration(iter_seed)
+            maps, transitions, age_maps, stock_maps, flow_records = self._run_single_iteration(iter_seed)
 
-            # Save LULC TIFs
-            save_tifs(maps, self.start_year, self.src_tags, iter_dir)
+            # Save LULC TIFs (v3.2: gated by RASTER_OUTPUT_SC / *_TIMESTEPS)
+            if config.RASTER_OUTPUT_SC:
+                stride = max(1, config.RASTER_OUTPUT_SC_TIMESTEPS)
+                if stride == 1:
+                    save_tifs(maps, self.start_year, self.src_tags, iter_dir)
+                else:
+                    from strategicc.io.raster import _TAG_TIE_POINT, _TAG_PIXEL_SCALE
+                    from PIL import Image
+                    iter_dir.mkdir(parents=True, exist_ok=True)
+                    keep_tags = {k: self.src_tags[k]
+                                 for k in (_TAG_TIE_POINT, _TAG_PIXEL_SCALE, 34735, 34736, 34737)
+                                 if k in self.src_tags}
+                    save_kwargs = {"compression": "lzw"}
+                    if keep_tags:
+                        save_kwargs["tiffinfo"] = keep_tags
+                    for t, m in enumerate(maps):
+                        if t % stride != 0 and t != len(maps) - 1:
+                            continue
+                        year = self.start_year + t
+                        Image.fromarray(m.astype(np.uint8), mode="L").save(
+                            str(iter_dir / f"lulc_{year}.tif"), **save_kwargs
+                        )
 
-            # Save age TIFs (v2.3)
-            if self.use_age and self.save_age_rasters:
+            # Save age TIFs (v2.3, gated by RASTER_OUTPUT_AGE in v3.2)
+            if self.use_age and self.save_age_rasters and config.RASTER_OUTPUT_AGE:
                 age_dir = iter_dir / "age"
+                stride = max(1, config.RASTER_OUTPUT_AGE_TIMESTEPS)
                 for t, age_arr in enumerate(age_maps):
+                    if t % stride != 0 and t != len(age_maps) - 1:
+                        continue
                     save_age_tif(
                         age_arr, self.start_year + t,
                         age_dir, self.src_tags
                     )
 
-            # Save per-iteration tables
-            self._save_area_table(maps, iter_dir, iteration=i + 1)
-            self._save_transition_log(transitions, iter_dir, iteration=i + 1)
+            # Save per-iteration tables (v3.2: gated by SUMMARY_OUTPUT_SC/TR)
+            if config.SUMMARY_OUTPUT_SC:
+                self._save_area_table(maps, iter_dir, iteration=i + 1)
+            if config.SUMMARY_OUTPUT_TR:
+                self._save_transition_log(transitions, iter_dir, iteration=i + 1)
+
+            # Save transition event rasters (v3.2)
+            if config.RASTER_OUTPUT_TRANSITION_EVENTS:
+                self._save_transition_event_rasters(
+                    transitions, self._initial_lulc.shape, iter_dir
+                )
+
+            # Save Stock & Flow outputs (v3.2)
+            if self.use_stockflow and stock_maps:
+                if config.SAVE_STOCK_RASTERS:
+                    self._save_stock_rasters(stock_maps, iter_dir)
+                self._save_flow_log(flow_records, iter_dir, iteration=i + 1)
+                self._save_stock_table(stock_maps, iter_dir, iteration=i + 1)
 
             self.iter_dirs.append(iter_dir)
 
@@ -406,7 +498,8 @@ class StrategiccEngine:
     def _run_single_iteration(
         self,
         seed: int,
-    ) -> tuple[list[np.ndarray], list[list[TransitionRecord]], list[np.ndarray]]:
+    ) -> tuple[list[np.ndarray], list[list[TransitionRecord]], list[np.ndarray],
+               list[dict[str, np.ndarray]], list[list]]:
 
         rng        = np.random.default_rng(seed)
         lulc       = self._initial_lulc
@@ -439,6 +532,24 @@ class StrategiccEngine:
         for rule in raw_rules:
             key = (rule.from_class, rule.to_class, rule.group)
             trans_age_info[key] = (rule.age_reset, rule.age_relative)
+
+        # ── Stock & Flow initialisation (v3.2) ──────────────────────────────
+        if self.use_stockflow:
+            current_stocks = init_stocks(
+                stock_types       = self._stock_types,
+                shape             = shape,
+                initial_links     = self._initial_stock_links,
+                state_attr_rules  = self._state_attr_rules,
+                age_map           = current_age,
+            )
+            stock_maps: list[dict[str, np.ndarray]] = [
+                {k: v.copy() for k, v in current_stocks.items()}
+            ]
+            all_flow_records: list[list] = []
+        else:
+            current_stocks = None
+            stock_maps = []
+            all_flow_records = []
 
         for t in range(self.n_timesteps):
             year = self.start_year + t
@@ -649,6 +760,30 @@ class StrategiccEngine:
                 )
                 age_maps.append(current_age.copy())
 
+            # ── Run Stock & Flow for this timestep (v3.2) ───────────────────
+            if self.use_stockflow and current_stocks is not None:
+                flow_mult_sample: dict[str, float] = {}
+                if self._flow_mult_rules:
+                    flow_mult_sample = sample_flow_multipliers(
+                        self._flow_mult_rules, rng
+                    )
+                current_stocks, year_flow_records = run_flows_for_timestep(
+                    stocks            = current_stocks,
+                    pathways          = self._flow_pathways,
+                    flow_order        = self._flow_order,
+                    year_transitions  = year_transitions,
+                    age_map           = current_age,
+                    state_attr_rules  = self._state_attr_rules,
+                    classes           = self.classes,
+                    year              = year,
+                    flow_mult_sample  = flow_mult_sample,
+                    lulc_map          = current,
+                )
+                stock_maps.append(
+                    {k: v.copy() for k, v in current_stocks.items()}
+                )
+                all_flow_records.append(year_flow_records)
+
             # Console summary
             m_str = "  ".join(
                 f"{g}={v:.3f}" for g, v in group_mults.items()
@@ -660,7 +795,7 @@ class StrategiccEngine:
                 f"t_mults=[{m_str}]{age_str}"
             )
 
-        return maps, all_transitions, age_maps
+        return maps, all_transitions, age_maps, stock_maps, all_flow_records
 
     # ── Internal: per-iteration disk outputs ──────────────────────────────────
 
@@ -705,3 +840,135 @@ class StrategiccEngine:
         pd.DataFrame(rows).to_csv(
             out_dir / "transition_log.csv", index=False
         )
+
+    def _save_transition_event_rasters(
+        self,
+        transitions: list[list[TransitionRecord]],
+        shape:       tuple[int, int],
+        out_dir:     Path,
+    ) -> None:
+        """
+        Save one raster per timestep where each fired cell holds the
+        destination class ID (0 = no transition that timestep). v3.2 —
+        gated by config.RASTER_OUTPUT_TRANSITION_EVENTS /
+        RASTER_OUTPUT_TRANSITION_EVENT_TIMESTEPS.
+        """
+        from strategicc.io.raster import _TAG_TIE_POINT, _TAG_PIXEL_SCALE
+        from PIL import Image
+
+        events_dir = out_dir / "transition_events"
+        events_dir.mkdir(parents=True, exist_ok=True)
+
+        keep_tags = {k: self.src_tags[k]
+                     for k in (_TAG_TIE_POINT, _TAG_PIXEL_SCALE, 34735, 34736, 34737)
+                     if k in self.src_tags}
+        save_kwargs = {"compression": "lzw"}
+        if keep_tags:
+            save_kwargs["tiffinfo"] = keep_tags
+
+        stride = max(1, config.RASTER_OUTPUT_TRANSITION_EVENT_TIMESTEPS)
+
+        for t, year_trans in enumerate(transitions):
+            if t % stride != 0 and t != len(transitions) - 1:
+                continue
+            year = self.start_year + t
+            canvas = np.zeros(shape, dtype=np.uint8)
+            for rec in year_trans:
+                canvas[rec.row, rec.col] = rec.to_id
+            Image.fromarray(canvas, mode="L").save(
+                str(events_dir / f"events_{year}.tif"), **save_kwargs
+            )
+
+    def _save_stock_rasters(
+        self,
+        stock_maps: list[dict[str, np.ndarray]],
+        out_dir:    Path,
+    ) -> None:
+        """
+        Save one raster per stock type per timestep. v3.2 — output
+        directory structure: {out_dir}/stocks/{stock_type}/stock_{year}.tif
+        """
+        from strategicc.io.raster import _TAG_TIE_POINT, _TAG_PIXEL_SCALE
+        from PIL import Image
+
+        keep_tags = {k: self.src_tags[k]
+                     for k in (_TAG_TIE_POINT, _TAG_PIXEL_SCALE, 34735, 34736, 34737)
+                     if k in self.src_tags}
+        save_kwargs = {"compression": "lzw"}
+        if keep_tags:
+            save_kwargs["tiffinfo"] = keep_tags
+
+        if not stock_maps:
+            return
+        stock_types = list(stock_maps[0].keys())
+
+        for stock_type in stock_types:
+            stock_dir = out_dir / "stocks" / stock_type
+            stock_dir.mkdir(parents=True, exist_ok=True)
+            for t, snapshot in enumerate(stock_maps):
+                year = self.start_year + t
+                arr  = snapshot[stock_type]
+                # Stocks are float — save as float32 GeoTIFF via a simple
+                # numpy .save fallback when not using rasterio; here we
+                # use Pillow's "F" mode for 32-bit float TIFFs.
+                Image.fromarray(arr.astype(np.float32), mode="F").save(
+                    str(stock_dir / f"stock_{year}.tif"), **save_kwargs
+                )
+
+    def _save_flow_log(
+        self,
+        flow_records: list[list],
+        out_dir:      Path,
+        iteration:    int,
+    ) -> None:
+        """
+        Save aggregate flow events (one row per pathway per timestep that
+        fired), plus a per-class breakdown (flow_log_by_class.csv, v3.2)
+        used by Mode C SEEA-EA valuation.
+        """
+        rows = []
+        class_rows = []
+        for year_records in flow_records:
+            for rec in year_records:
+                rows.append({
+                    "iteration":        iteration,
+                    "year":             rec.year,
+                    "flow_type":        rec.flow_type,
+                    "from_stock":       rec.from_stock,
+                    "to_stock":         rec.to_stock,
+                    "transition_group": rec.transition_group or "",
+                    "total_amount":     rec.total_amount,
+                })
+                if rec.by_class:
+                    for class_name, amount in rec.by_class.items():
+                        class_rows.append({
+                            "iteration":  iteration,
+                            "year":       rec.year,
+                            "flow_type":  rec.flow_type,
+                            "class_name": class_name,
+                            "amount":     amount,
+                        })
+        pd.DataFrame(rows).to_csv(out_dir / "flow_log.csv", index=False)
+        pd.DataFrame(class_rows).to_csv(
+            out_dir / "flow_log_by_class.csv", index=False
+        )
+
+    def _save_stock_table(
+        self,
+        stock_maps: list[dict[str, np.ndarray]],
+        out_dir:    Path,
+        iteration:  int,
+    ) -> None:
+        """Save total stock quantity per stock type per timestep (tabular summary)."""
+        rows = []
+        for t, snapshot in enumerate(stock_maps):
+            year = self.start_year + t
+            for stock_type, arr in snapshot.items():
+                rows.append({
+                    "iteration":  iteration,
+                    "year":       year,
+                    "stock_type": stock_type,
+                    "total":      float(arr.sum()),
+                    "mean":       float(arr.mean()),
+                })
+        pd.DataFrame(rows).to_csv(out_dir / "stock_table.csv", index=False)

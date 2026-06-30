@@ -103,6 +103,24 @@ RasterOutputAgeTimesteps                 = 1     #int
 RasterOutputTransitionEvents              = Yes   #bool  (save transition event raster)
 RasterOutputTransitionEventTimesteps       = 1     #int
 
+
+================================================================
+SECTION 7 - STOCK & FLOW
+================================================================
+USE_STOCKFLOW                  = False   #bool  (set True to enable carbon/material stock-flow tracking)
+STOCK_TYPE_CSV                  = inputs/StockType.csv                  #path
+STOCK_GROUP_CSV                  = inputs/StockGroup.csv                 #path
+STOCK_GROUP_MEMBERSHIP_CSV        = inputs/StockTypeGroupMembership.csv   #path
+FLOW_TYPE_CSV                      = inputs/FlowType.csv                   #path
+FLOW_ORDER_CSV                      = inputs/FlowOrder.csv                  #path
+FLOW_PATHWAYS_CSV                    = inputs/FlowPathways.csv               #path
+FLOW_MULTIPLIER_CSV                   = inputs/FlowMultiplier.csv             #path
+STATE_ATTRIBUTE_TYPE_CSV               = inputs/StateAttributeType.csv         #path
+STATE_ATTRIBUTE_VALUES_CSV              = inputs/StateAttributeValues.csv       #path
+INITIAL_STOCK_NON_SPATIAL_CSV            = inputs/InitialStockNonSpatial.csv     #path
+SAVE_STOCK_RASTERS                        = True   #bool  (save per-stock-type rasters per timestep)
+SEEA_VALUATION_MODE                        = area    #str   (area | stock_flow)
+
 ```
 #================================================================
 #APPENDIX - FILLED EXAMPLE FOR EACH REFERENCED CSV

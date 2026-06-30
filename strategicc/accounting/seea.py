@@ -1,15 +1,16 @@
 """
-strategicc/accounting/seea.py  —  SEEA-EA accounting engine  v2.2
+strategicc/accounting/seea.py  —  SEEA-EA accounting engine  v3.2
 ------------------------------------------------------------------
 Produces all ecosystem accounts from simulation outputs.
 
-v2.2 changes
+v3.2 changes
 ------------
-* Accepts area_modal_df — derived from modal LULC maps — as the primary
-  area input for all accounts. This ensures full consistency between the
-  spatial (modal raster) and tabular (SEEA) representations.
-* area_df (raw per-iteration) is retained only for the uncertainty summary.
-* Area unit is detected automatically from column name (area_ha/km2/px).
+* Optional stock_df / flow_df parameters (from
+  strategicc.stockflow.aggregation) enable Mode C valuation: services
+  whose EcosystemServices.csv row sets StockFlowSource pull their
+  physical quantity directly from the Stock & Flow engine's per-class
+  totals instead of a static PhysicalValuePerHa, with ValuePerHa then
+  acting as a price PER PHYSICAL UNIT rather than per area.
 
 Accounts produced
 -----------------
@@ -19,6 +20,7 @@ Accounts produced
 4. Monetary flow account — total monetary value per service per year
 5. Change-in-value       — year-on-year change in total ecosystem value
 6. Uncertainty summary   — min/max range across iterations (raw area_df)
+7. Stock account         — total stock per class per year (Mode C, v3.2)
 """
 
 from __future__ import annotations
@@ -51,13 +53,13 @@ def _unit_label(col: str) -> str:
 
 class SEEAAccount:
     """
-    SEEA-EA ecosystem accounting engine  v2.2
+    SEEA-EA ecosystem accounting engine  v3.2
 
     Parameters
     ----------
     area_modal_df : area table derived from modal LULC maps — used for all
-                    accounts. Schema: year, class_id, class_name, area_{unit}
-                    Produced by outputs.modal_to_area_table().
+                    area-based accounts. Schema: year, class_id, class_name,
+                    area_{unit}. Produced by outputs.modal_to_area_table().
 
     area_df       : raw per-iteration area table — used ONLY for the
                     uncertainty summary. Schema adds an 'iteration' column.
@@ -72,6 +74,16 @@ class SEEAAccount:
 
     px_area       : pixel area in the chosen unit (engine.px_area).
                     Used for transition matrix area calculation.
+
+    stock_df      : (v3.2) DataFrame from
+                    stockflow.aggregation.aggregate_stock_by_class().
+                    Schema: year, class_id, class_name, stock_type, total.
+                    Required for Mode C services with stockflow_kind="stock".
+
+    flow_df       : (v3.2) DataFrame from
+                    stockflow.aggregation.aggregate_flow_by_class().
+                    Schema: year, class_name, flow_type, total.
+                    Required for Mode C services with stockflow_kind="flow".
     """
 
     def __init__(
@@ -81,14 +93,18 @@ class SEEAAccount:
         services:      list[EcosystemService],
         classes:       dict[int, StateClass],
         px_area:       float,
-        area_df:       pd.DataFrame | None = None,   # raw — for uncertainty only
+        area_df:       pd.DataFrame | None = None,
+        stock_df:      pd.DataFrame | None = None,   # v3.2
+        flow_df:       pd.DataFrame | None = None,   # v3.2
     ) -> None:
         self.area_modal_df = area_modal_df
         self.trans_df      = trans_df
         self.services      = services
         self.classes       = classes
         self.px_area       = px_area
-        self.area_df       = area_df   # may be None
+        self.area_df       = area_df
+        self.stock_df      = stock_df
+        self.flow_df       = flow_df
 
         # Detect area column and unit label from modal df
         self._acol       = _area_col(area_modal_df)
@@ -100,6 +116,44 @@ class SEEAAccount:
             self._svc_by_class.setdefault(svc.state_class, []).append(svc)
 
         self._years = sorted(area_modal_df["year"].unique())
+
+    # ── Internal: Mode C lookup helpers ─────────────────────────────────────
+
+    def _lookup_stockflow_quantity(
+        self,
+        svc:        EcosystemService,
+        class_name: str,
+        year:       int,
+    ) -> float:
+        """
+        Look up the physical quantity for a Mode C (stock_flow-linked)
+        service, for one class and year. Returns 0.0 if not found or if
+        the required aggregation DataFrame was not supplied.
+        """
+        kind = svc.stockflow_kind
+        type_name = svc.stockflow_type_name
+
+        if kind == "stock":
+            if self.stock_df is None or self.stock_df.empty:
+                return 0.0
+            match = self.stock_df[
+                (self.stock_df["class_name"] == class_name)
+                & (self.stock_df["year"] == year)
+                & (self.stock_df["stock_type"] == type_name)
+            ]
+            return float(match["total"].sum()) if not match.empty else 0.0
+
+        if kind == "flow":
+            if self.flow_df is None or self.flow_df.empty:
+                return 0.0
+            match = self.flow_df[
+                (self.flow_df["class_name"] == class_name)
+                & (self.flow_df["year"] == year)
+                & (self.flow_df["flow_type"] == type_name)
+            ]
+            return float(match["total"].sum()) if not match.empty else 0.0
+
+        return 0.0
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -175,28 +229,73 @@ class SEEAAccount:
         val_matrix.columns.name = None
         return val_matrix
 
+    def _service_physical_qty(
+        self, svc: EcosystemService, class_name: str, year: int, area: float,
+    ) -> float | None:
+        """
+        Unified physical-quantity resolver across all three modes.
+        Returns None if no physical quantity applies (Mode A, no
+        PhysicalUnit defined).
+        """
+        if svc.has_stockflow_source:
+            return self._lookup_stockflow_quantity(svc, class_name, year)
+        if svc.has_physical:
+            return svc.physical_per_ha * area
+        return None
+
+    def _service_monetary_value(
+        self, svc: EcosystemService, class_name: str, year: int, area: float,
+    ) -> float:
+        """
+        Unified monetary-value resolver across all three modes.
+
+        Mode A/B: value = ValuePerHa * area  (ValuePerHa is per-area price)
+        Mode C:   value = stockflow_quantity * ValuePerHa
+                  (ValuePerHa is reinterpreted as price PER PHYSICAL UNIT)
+        """
+        if svc.has_stockflow_source:
+            qty = self._lookup_stockflow_quantity(svc, class_name, year)
+            return qty * svc.value_per_ha
+        return svc.value_per_ha * area
+
     def physical_flow_account(self) -> pd.DataFrame | None:
         """
-        Physical ecosystem service flow account (Mode B only).
+        Physical ecosystem service flow account (Mode B and Mode C).
         Rows: year. Columns: (service_type, service_name, unit). Values: total quantity.
         """
-        mode_b = [s for s in self.services if s.has_physical]
-        if not mode_b:
+        has_any_physical = any(
+            s.has_physical or s.has_stockflow_source for s in self.services
+        )
+        if not has_any_physical:
             return None
 
         records = []
         for _, row in self.area_modal_df.iterrows():
-            svcs = [s for s in self._svc_by_class.get(row["class_name"], [])
-                    if s.has_physical]
+            svcs = [
+                s for s in self._svc_by_class.get(row["class_name"], [])
+                if s.has_physical or s.has_stockflow_source
+            ]
             for svc in svcs:
+                qty = self._service_physical_qty(
+                    svc, row["class_name"], row["year"], row[self._acol]
+                )
+                if qty is None:
+                    continue
+                unit = svc.physical_unit or (
+                    f"{svc.stockflow_type_name} ({svc.stockflow_kind})"
+                    if svc.has_stockflow_source else ""
+                )
                 records.append({
                     "year":         row["year"],
                     "class":        row["class_name"],
                     "service_type": svc.service_type,
                     "service_name": svc.service_name,
-                    "unit":         svc.physical_unit,
-                    "flow":         svc.physical_per_ha * row[self._acol],
+                    "unit":         unit,
+                    "flow":         qty,
                 })
+
+        if not records:
+            return None
 
         df = pd.DataFrame(records)
         pivot = df.pivot_table(
@@ -212,19 +311,24 @@ class SEEAAccount:
         """
         Monetary ecosystem service flow account.
         Rows: year. Columns: (service_type, service_name). Values: total value.
-        Note: ValuePerHa in EcosystemServices.csv is treated as value per
-        area unit — if AREA_UNIT='km2', ensure values are per km².
+
+        Mode A/B services: ValuePerHa is treated as value per area unit.
+        Mode C services (v3.2): ValuePerHa is treated as price PER PHYSICAL
+        UNIT, applied to the stock/flow-sourced quantity.
         """
         records = []
         for _, row in self.area_modal_df.iterrows():
             for svc in self._svc_by_class.get(row["class_name"], []):
+                value = self._service_monetary_value(
+                    svc, row["class_name"], row["year"], row[self._acol]
+                )
                 records.append({
                     "year":         row["year"],
                     "class":        row["class_name"],
                     "service_type": svc.service_type,
                     "service_name": svc.service_name,
                     "currency":     svc.currency,
-                    "value":        svc.value_per_ha * row[self._acol],
+                    "value":        value,
                 })
 
         df = pd.DataFrame(records)
@@ -242,7 +346,12 @@ class SEEAAccount:
         records = []
         for _, row in self.area_modal_df.iterrows():
             svcs  = self._svc_by_class.get(row["class_name"], [])
-            total = sum(s.value_per_ha for s in svcs) * row[self._acol]
+            total = sum(
+                self._service_monetary_value(
+                    s, row["class_name"], row["year"], row[self._acol]
+                )
+                for s in svcs
+            )
             records.append({
                 "year":  row["year"],
                 "class": row["class_name"],

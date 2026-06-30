@@ -1,0 +1,4 @@
+Iteration,Timestep,FromStratumId,FromSecondaryStratumId,FromTertiaryStratumId,FromStateClassId,FromAgeMin,FromStockTypeId,ToStratumId,ToStateClassId,ToAgeMin,ToStockTypeId,TransitionGroupId,StateAttributeTypeId,FlowTypeId,TargetType,Multiplier,TransferToStratumId,TransferToSecondaryStratumId,TransferToTertiaryStratumId,TransferToStateClassId,TransferToAgeMin
+,,,,,Mangrove:All,,Atmosphere,,,,Biomass,,NPP,NPP,,1,,,,,
+,,,,,,,Biomass,,,,Soil,,,Humification,,0.05,,,,,
+,,,,,,,Biomass,,,,Atmosphere,Aquaculture_expansion [Type],,Emission,,0.9,,,,,

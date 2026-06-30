@@ -1,0 +1,4 @@
+Iteration,Timestep,StratumId,SecondaryStratumId,TertiaryStratumId,StateClassId,StateAttributeTypeId,AgeMin,AgeMax,TSTGroupId,TSTMin,TSTMax,Value,DistributionType,DistributionFrequencyId,DistributionSD,DistributionMin,DistributionMax
+,,,,,,NPP,0,10,,,,5.0956,,,,,
+,,,,,,NPP,11,20,,,,5.107,,,,,
+,,,,,,NPP,21,999,,,,18.4,,,,,
