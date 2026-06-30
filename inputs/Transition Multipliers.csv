@@ -1,0 +1,5 @@
+Iteration,Timestep,StratumId,SecondaryStratumId,TertiaryStratumId,StateClassId,AgeMin,AgeMax,TSTGroupId,TSTMin,TSTMax,TransitionGroupId,TransitionMultiplierTypeId,Amount,DistributionType,DistributionFrequencyId,DistributionSD,DistributionMin,DistributionMax
+,,,,,,,,,,,Agriculture_expansion [Type],,,Agriculture_expansion Distribution,Iteration and Timestep,,0.33,0.5
+,,,,,,,,,,,Aquaculture_expansion [Type],,,Aquaculture_expansion Distribution,Iteration and Timestep,,0.33,0.5
+,,,,,,,,,,,Mangrove_recruitment [Type],,,Mangrove_recruitment Distribution,Iteration and Timestep,,1.5,2
+,,,,,,,,,,,Urbanization [Type],,,Urbanization Distribution,Iteration and Timestep,,0.33,0.5

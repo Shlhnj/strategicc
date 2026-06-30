@@ -1,0 +1,7 @@
+Name,Description,Units,IsAuto
+Atmosphere [Type],,,Yes
+Biomass [Type],,,Yes
+Phytoplankton [Type],,,Yes
+Soil [Type],,,Yes
+Total_ecosystem_carbon,,,
+Wood_products [Type],,,Yes

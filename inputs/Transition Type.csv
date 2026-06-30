@@ -1,0 +1,8 @@
+Name,Id,Color,Legend,Description
+Agriculture_expansion,4,"255,255,255,0",,
+Aquaculture_expansion,5,"255,255,0,255",,
+Colonization,7,"255,0,255,0",,
+Inundation,2,"255,128,255,255",,
+Mangrove_recruitment,6,"255,0,128,0",,
+Sedimentation,1,"255,255,128,0",,
+Urbanization,3,"255,255,0,0",,

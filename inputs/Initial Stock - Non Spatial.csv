@@ -1,0 +1,4 @@
+StockTypeId,StateAttributeTypeId
+Biomass,Initial_biomass_carbon
+Phytoplankton,Phytoplankton_carbon
+Soil,Initial_soil_carbon

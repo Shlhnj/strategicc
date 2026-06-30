@@ -1,0 +1,2 @@
+Iteration,Timestep,StratumId,SecondaryStratumId,TertiaryStratumId,StateClassId,AgeMin,AgeMax,FlowGroupId,FlowMultiplierTypeId,Value,DistributionType,DistributionFrequencyId,DistributionSD,DistributionMin,DistributionMax
+,,,,,,,,NPP [Type],,,Uniform,Iteration and Timestep,,0.5,1.5
