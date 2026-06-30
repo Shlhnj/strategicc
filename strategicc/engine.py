@@ -27,6 +27,10 @@ from strategicc.io.csv_loader import (
     load_initial_age_rules,
     load_transition_size_rules,
     group_size_bins,
+    load_transition_targets,
+    load_transition_adjacency_setting,
+    load_transition_adjacency_multipliers,
+    build_adjacency_strength_map,
 )
 from strategicc.core.transitions import build_transition_index, TransitionRecord
 from strategicc.core.adjacency   import compute_neighbor_fractions
@@ -43,6 +47,11 @@ from strategicc.core.age import (
     save_age_tif,
 )
 from strategicc.core.patches import grow_patches_for_group
+from strategicc.core.targets import (
+    resolve_targets_per_timestep,
+    scale_probability_to_target,
+    target_to_patch_budget,
+)
 from strategicc.accounting.csv_loader import load_ecosystem_services, EcosystemService
 
 
@@ -89,6 +98,9 @@ class StrategiccEngine:
         age_initial_csv       = None,         # v2.3 Path | None
         save_age_rasters:     bool = False,   # v2.3
         transition_size_csv   = None,         # v2.5 Path | None
+        transition_targets_csv = None,        # v3.1 Path | None
+        transition_adjacency_setting_csv = None,    # v3.1 Path | None
+        transition_adjacency_mult_csv    = None,    # v3.1 Path | None
     ) -> None:
         self.lulc_path               = Path(lulc_path)
         self.state_classes_csv       = Path(state_classes_csv)
@@ -112,6 +124,13 @@ class StrategiccEngine:
         self.age_initial_csv         = Path(age_initial_csv) if age_initial_csv else None
         self.save_age_rasters        = save_age_rasters     # v2.3
         self.transition_size_csv     = Path(transition_size_csv) if transition_size_csv else None  # v2.5
+        self.transition_targets_csv  = Path(transition_targets_csv) if transition_targets_csv else None  # v3.1
+        self.transition_adjacency_setting_csv = (
+            Path(transition_adjacency_setting_csv) if transition_adjacency_setting_csv else None
+        )  # v3.1
+        self.transition_adjacency_mult_csv = (
+            Path(transition_adjacency_mult_csv) if transition_adjacency_mult_csv else None
+        )  # v3.1
 
         # Populated by load()
         self.classes:             dict  = {}
@@ -126,6 +145,11 @@ class StrategiccEngine:
         self._initial_age:        np.ndarray | None = None   # v2.3
         self._age_rules:          list               = []    # v2.3
         self._size_bins:          dict               = {}    # v2.5 — {group: bins}
+        self._target_rules:       list               = []    # v3.1 — raw rules
+        self._targets_by_timestep: dict              = {}    # v3.1 — {t: {group: amount}}
+        self._adjacency_groups:    set                = set() # v3.1 — groups using CSV-driven adjacency
+        self._adjacency_strength_map: dict            = {}    # v3.1 — {group: strength}
+
 
 
         # Populated by run()
@@ -157,6 +181,9 @@ class StrategiccEngine:
             age_initial_csv        = config.AGE_INITIAL_CSV,
             save_age_rasters       = config.SAVE_AGE_RASTERS,
             transition_size_csv    = config.TRANSITION_SIZE_CSV,
+            transition_targets_csv = config.TRANSITION_TARGETS_CSV,
+            transition_adjacency_setting_csv = config.TRANSITION_ADJACENCY_SETTING_CSV,
+            transition_adjacency_mult_csv    = config.TRANSITION_ADJACENCY_MULT_CSV,
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -252,6 +279,56 @@ class StrategiccEngine:
             print("  [Skipped — no TransitionSizeDistribution.csv found; "
                   "all groups use independent-cell firing]")
 
+        print("\n[9] Loading transition targets...")
+        if self.transition_targets_csv and self.transition_targets_csv.exists():
+            self._target_rules = load_transition_targets(self.transition_targets_csv)
+            self._targets_by_timestep = resolve_targets_per_timestep(
+                self._target_rules, self.n_timesteps
+            )
+            active_groups = {
+                g for t_targets in self._targets_by_timestep.values()
+                for g, amt in t_targets.items() if amt is not None
+            }
+            if active_groups:
+                print(f"  Targets active for: {sorted(active_groups)}")
+        else:
+            print("  [Skipped — no TransitionTargets.csv found; "
+                  "all groups use probability-only firing]")
+
+        print("\n[10] Loading transition adjacency (CSV-driven)...")
+        if (self.transition_adjacency_setting_csv
+                and self.transition_adjacency_setting_csv.exists()
+                and self.transition_adjacency_mult_csv
+                and self.transition_adjacency_mult_csv.exists()):
+            setting_rules = load_transition_adjacency_setting(
+                self.transition_adjacency_setting_csv
+            )
+            mult_rules = load_transition_adjacency_multipliers(
+                self.transition_adjacency_mult_csv
+            )
+            self._adjacency_groups = {r.group for r in setting_rules}
+            self._adjacency_strength_map = build_adjacency_strength_map(mult_rules)
+
+            # Sanity check: warn about groups in Setting but missing a
+            # usable (blank-AttributeValue) strength in Multipliers
+            missing_strength = self._adjacency_groups - set(self._adjacency_strength_map.keys())
+            if missing_strength:
+                print(f"  [Warning] {len(missing_strength)} group(s) in "
+                      f"TransitionAdjacencySetting.csv have no usable flat "
+                      f"strength in TransitionAdjacencyMultipliers.csv "
+                      f"(only attribute-based rows found) — these will "
+                      f"fall back to the global ADJACENCY_STRENGTH: "
+                      f"{sorted(missing_strength)}")
+
+            if self._adjacency_groups:
+                print(f"  CSV-driven adjacency active for: "
+                      f"{sorted(self._adjacency_groups)}")
+        else:
+            print("  [Skipped — no TransitionAdjacencySetting.csv / "
+                  "TransitionAdjacencyMultipliers.csv pair found; "
+                  "all groups use the global ADJACENCY_STRENGTH / "
+                  "STRICT_EXPANSION_GROUPS scalar fallback]")
+
     def run(self) -> None:
         """
         Run all iterations. Each iteration is saved to its own subfolder.
@@ -265,9 +342,10 @@ class StrategiccEngine:
             f"spatial_mult={'ON' if self.use_spatial_mult else 'OFF'}  "
             f"trans_mult={'ON' if self.use_trans_multiplier else 'OFF'}  "
             f"age={'ON' if self.use_age else 'OFF'}  "
-            f"size_dist={'ON' if self._size_bins else 'OFF'}"
+            f"size_dist={'ON' if self._size_bins else 'OFF'}  "
+            f"targets={'ON' if self._target_rules else 'OFF'}"
         )
-        print(f"\n[9] Running {self.n_iterations} iteration(s)  ({flags})")
+        print(f"\n[11] Running {self.n_iterations} iteration(s)  ({flags})")
 
         self.iter_dirs = []
 
@@ -426,12 +504,24 @@ class StrategiccEngine:
                     # 3. Adjacency multiplier
                     if self.use_adjacency:
                         adj_frac = fracs[:, :, to_id]
+
+                        # v3.1: use this group's CSV-driven strength if
+                        # available, else fall back to the global scalar.
+                        # STRICT_EXPANSION_GROUPS classification (whether
+                        # a neighbour of the target class is REQUIRED to
+                        # fire at all) is unaffected by the strength
+                        # source — it's a separate STRATEGICC-specific
+                        # setting, not part of the adjacency strength CSVs.
+                        strength = self._adjacency_strength_map.get(
+                            group, config.ADJACENCY_STRENGTH
+                        )
+
                         if group in config.STRICT_EXPANSION_GROUPS:
                             reachable = adj_frac > 0.0
-                            adj_mult  = adj_frac * config.ADJACENCY_STRENGTH
+                            adj_mult  = adj_frac * strength
                         else:
                             reachable = np.ones(shape, dtype=bool)
-                            adj_mult  = 1.0 + adj_frac * config.ADJACENCY_STRENGTH
+                            adj_mult  = 1.0 + adj_frac * strength
                     else:
                         reachable = np.ones(shape, dtype=bool)
                         adj_mult  = ones
@@ -445,30 +535,65 @@ class StrategiccEngine:
                     # 5. Effective probability
                     p_eff = (base_prob * t_mult * adj_mult * sp_mult).astype(np.float32)
 
+                    # 5b. Transition target override (v3.1)
+                    target_amount = self._targets_by_timestep.get(t, {}).get(group)
+                    has_target = target_amount is not None
+
                     # 6. Eligible cells (add age gate)
+                    # When a target is active, a group with zero base
+                    # probability must still be eligible — the target
+                    # itself is the driver, not p_eff. The age/reachable/
+                    # source-class gates still apply regardless of target.
+                    prob_gate = (p_eff > 0) | has_target
                     eligible = (
                         src_mask & reachable & age_ok
-                        & ~transition_fired & (p_eff > 0)
+                        & ~transition_fired & prob_gate
                     )
                     if not eligible.any():
                         continue
 
                     # 7/8. Fire — branch on whether this group uses
-                    # patch-growing (v2.5) or independent-cell firing
+                    # patch-growing (v2.5) or independent-cell firing,
+                    # further branching on whether a target is active (v3.1)
                     if group in self._size_bins:
-                        fire = grow_patches_for_group(
-                            p_eff      = p_eff,
-                            eligible   = eligible,
-                            size_bins  = self._size_bins[group],
-                            px_area_ha = self.px_area_ha,
-                            rng        = rng,
-                        )
+                        if has_target:
+                            # Target REPLACES the p_eff-derived budget
+                            # directly for size-distribution groups,
+                            # matching the official target algorithm.
+                            budget = target_to_patch_budget(
+                                target_amount, self.px_area
+                            )
+                            fire = grow_patches_for_group(
+                                p_eff           = p_eff,
+                                eligible        = eligible,
+                                size_bins       = self._size_bins[group],
+                                px_area_ha      = self.px_area_ha,
+                                rng             = rng,
+                                budget_override = budget,
+                            )
+                        else:
+                            fire = grow_patches_for_group(
+                                p_eff      = p_eff,
+                                eligible   = eligible,
+                                size_bins  = self._size_bins[group],
+                                px_area_ha = self.px_area_ha,
+                                rng        = rng,
+                            )
                         # Patches consume the full budget mass of the
                         # cells they claim — credit cum_prob accordingly
                         # so other groups competing for the same cells
                         # this timestep see a consistent picture.
                         cum_prob[fire] += p_eff[fire]
                     else:
+                        if has_target:
+                            # Target SCALES p_eff so the expected fired
+                            # area matches the target, preserving
+                            # stochastic variance (matches the official
+                            # non-size-distribution target algorithm).
+                            p_eff = scale_probability_to_target(
+                                p_eff, eligible, target_amount, self.px_area
+                            )
+
                         # Cap against remaining budget
                         remaining = np.clip(1.0 - cum_prob, 0.0, 1.0)
                         p_capped  = np.minimum(p_eff, remaining)

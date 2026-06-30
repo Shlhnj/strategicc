@@ -43,6 +43,12 @@ SAVE_AGE_RASTERS     = True
 # ── Transition size distribution ────────────────────────────────────────────────
 TRANSITION_SIZE_CSV  = Path("inputs/TransitionSizeDistribution.csv")
 
+# ── Transition targets (v3.1) ─────────────────────────────────────────────────
+# Area-based overrides that replace or scale a group's probability-derived
+# budget per timestep. Groups absent from this file (or the file itself
+# missing) keep their normal probability-only behaviour.
+TRANSITION_TARGETS_CSV = Path("inputs/TransitionTargets.csv")
+
 # ── Transition adjacency (CSV-driven, optional — falls back to the scalar
 #    ADJACENCY_STRENGTH / STRICT_EXPANSION_GROUPS below if not provided) ────────
 TRANSITION_ADJACENCY_SETTING_CSV = Path("inputs/TransitionAdjacencySetting.csv")
@@ -130,6 +136,7 @@ _MANIFEST_SCHEMA: dict[str, tuple[str, str]] = {
     "ECOSYSTEM_SERVICES_CSV":             ("ECOSYSTEM_SERVICES_CSV", "path"),
     "AGE_INITIAL_CSV":                    ("AGE_INITIAL_CSV", "path"),
     "TRANSITION_SIZE_CSV":                ("TRANSITION_SIZE_CSV", "path"),
+    "TRANSITION_TARGETS_CSV":             ("TRANSITION_TARGETS_CSV", "path"),
     "TRANSITION_ADJACENCY_SETTING_CSV":   ("TRANSITION_ADJACENCY_SETTING_CSV", "path"),
     "TRANSITION_ADJACENCY_MULT_CSV":      ("TRANSITION_ADJACENCY_MULT_CSV", "path"),
     "TERMINOLOGY_CSV":                    ("TERMINOLOGY_CSV", "path"),

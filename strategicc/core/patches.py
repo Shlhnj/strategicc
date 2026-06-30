@@ -103,27 +103,35 @@ def grow_patch(
 
 
 def grow_patches_for_group(
-    p_eff:       np.ndarray,
-    eligible:    np.ndarray,
-    size_bins:   list[tuple[float, float, float]],
-    px_area_ha:  float,
-    rng:         np.random.Generator,
-    max_patches: int = 10_000,
+    p_eff:           np.ndarray,
+    eligible:        np.ndarray,
+    size_bins:       list[tuple[float, float, float]],
+    px_area_ha:      float,
+    rng:             np.random.Generator,
+    max_patches:     int = 10_000,
+    budget_override: float | None = None,
 ) -> np.ndarray:
     """
-    Grow patches for one transition group until the probability budget
-    is exhausted.
+    Grow patches for one transition group until the budget is exhausted.
 
     Parameters
     ----------
-    p_eff       : effective probability array (base x t_mult x adj x spatial)
-                  for this group, this timestep
-    eligible    : bool array — cells eligible for this transition
-    size_bins   : group's cumulative size bins from group_size_bins()
-    px_area_ha  : area per pixel in hectares (converts sampled patch_size_ha
-                  to a target cell count)
-    rng         : numpy Generator
-    max_patches : safety cap to prevent runaway loops on pathological inputs
+    p_eff            : effective probability array (base x t_mult x adj x
+                        spatial) for this group, this timestep — still used
+                        for seed-selection weighting even when
+                        budget_override is supplied
+    eligible         : bool array — cells eligible for this transition
+    size_bins        : group's cumulative size bins from group_size_bins()
+    px_area_ha       : area per pixel in hectares
+    rng              : numpy Generator
+    max_patches      : safety cap to prevent runaway loops
+    budget_override  : if supplied (v3.1 — Transition Targets), use this
+                        cell-count budget directly instead of deriving it
+                        from sum(p_eff over eligible cells). Used when a
+                        target area is set for a group that also has a
+                        size distribution — the target REPLACES the
+                        probability-derived budget rather than scaling it,
+                        matching the size-distribution target algorithm.
 
     Returns
     -------
@@ -132,21 +140,26 @@ def grow_patches_for_group(
 
     Budget semantics
     ----------------
-    `total_budget = sum(p_eff over eligible cells)` is the EXPECTED number
-    of cells that independent-cell firing would produce (since each cell
-    fires with probability p_eff[r,c], the expectation of the sum of
-    Bernoulli draws is exactly sum(p_eff)). Patch-growing reshapes WHERE
-    that same expected cell count lands spatially, so the budget must be
-    consumed in units of CELLS FIRED, not in units of probability mass —
-    crediting probability mass per patch would systematically over- or
-    under-fire depending on local p_eff magnitude.
+    By default, `total_budget = sum(p_eff over eligible cells)` is the
+    EXPECTED number of cells that independent-cell firing would produce
+    (since each cell fires with probability p_eff[r,c], the expectation
+    of the sum of Bernoulli draws is exactly sum(p_eff)). Patch-growing
+    reshapes WHERE that same expected cell count lands spatially, so the
+    budget must be consumed in units of CELLS FIRED, not probability mass.
+    When budget_override is supplied, that value is used as the cell-count
+    budget directly, bypassing the p_eff-derived calculation entirely.
     """
     shape = p_eff.shape
     fired = np.zeros(shape, dtype=bool)
 
-    total_budget = float(p_eff[eligible].sum())   # expected cell count
+    if budget_override is not None:
+        total_budget = float(budget_override)
+    else:
+        total_budget = float(p_eff[eligible].sum())   # expected cell count
+
     if total_budget <= 0 or not eligible.any():
         return fired
+
 
     consumed = 0.0   # cells fired so far
     claimed  = ~eligible   # True = unavailable to grow into
@@ -161,7 +174,15 @@ def grow_patches_for_group(
         weights = p_eff[avail_r, avail_c]
         w_sum   = weights.sum()
         if w_sum <= 0:
-            break
+            if budget_override is not None:
+                # Purely target-driven group with no underlying p_eff
+                # signal (e.g. a managed target with no base probability
+                # defined) — fall back to uniform random seed selection
+                # among eligible cells rather than refusing to grow.
+                weights = np.ones(len(avail_r), dtype=np.float64)
+                w_sum = weights.sum()
+            else:
+                break
         weights = weights / w_sum
 
         seed_idx = rng.choice(len(avail_r), p=weights)

@@ -424,3 +424,245 @@ def group_size_bins(
         result[group] = bins
 
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Transition targets  (v3.1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class TransitionTargetRule:
+    """
+    One row from TransitionTargets.csv — an area-based override that
+    replaces (or scales) a transition group's probability-derived budget
+    for a given iteration/timestep.
+
+    Expected columns:
+        Iteration, Timestep, StratumId, SecondaryStratumId, TertiaryStratumId,
+        TransitionGroupId, Amount, DistributionType, DistributionFrequencyId,
+        DistributionSD, DistributionMin, DistributionMax
+
+    Persistence semantics (matches the source ST-Sim behaviour):
+        A target specified at Timestep T applies from T onward, for every
+        subsequent timestep, until a NEW record for the same TransitionGroupId
+        is encountered at a later timestep. A record with `amount=None` and
+        no distribution explicitly turns the target OFF from that timestep
+        onward (group reverts to its normal probability-derived budget).
+
+    Only `group`, `timestep`, and `amount` are used in v3.1 — Iteration and
+    Stratum scoping are parsed but not yet applied (single-stratum landscapes
+    only for now).
+    """
+    group:         str
+    timestep:      int | None   # None = applies from t=0
+    amount:        float | None # target area in the engine's configured AREA_UNIT; None = target OFF
+    iteration:     int | None = None
+    distribution_type: str | None = None
+    distribution_min:  float | None = None
+    distribution_max:  float | None = None
+
+
+def load_transition_targets(path: str | Path) -> list[TransitionTargetRule]:
+    """
+    Parse TransitionTargets.csv.
+
+    Returns
+    -------
+    list of TransitionTargetRule, ordered as they appear in the file.
+    Rows are NOT pre-resolved into a per-timestep lookup here — see
+    strategicc.core.targets.resolve_targets_per_timestep() for that.
+    """
+    path  = Path(path)
+    rules: list[TransitionTargetRule] = []
+
+    with path.open(newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            group = _strip_type_suffix(row.get("TransitionGroupId", "").strip())
+            if not group:
+                continue
+
+            amount_raw = row.get("Amount", "").strip()
+            dist_raw   = row.get("DistributionType", "").strip()
+
+            # A row with both Amount and DistributionType blank explicitly
+            # turns the target OFF for this group from this timestep onward.
+            amount = _parse_float_or_none(amount_raw) if amount_raw else None
+
+            rules.append(TransitionTargetRule(
+                group              = group,
+                timestep           = _parse_int_or_none(row.get("Timestep", "")),
+                amount             = amount,
+                iteration          = _parse_int_or_none(row.get("Iteration", "")),
+                distribution_type  = dist_raw or None,
+                distribution_min   = _parse_float_or_none(row.get("DistributionMin", "")),
+                distribution_max   = _parse_float_or_none(row.get("DistributionMax", "")),
+            ))
+
+    print(f"  {len(rules)} transition target rule(s) loaded "
+          f"across {len(set(r.group for r in rules))} group(s)")
+    return rules
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Transition adjacency settings and multipliers  (v3.1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class TransitionAdjacencySettingRule:
+    """
+    One row from TransitionAdjacencySetting.csv.
+
+    Expected columns:
+        TransitionGroupId, StateClassId, StateAttributeTypeId,
+        NeighborhoodRadius, UpdateFrequency
+
+    A row's presence for a group is the signal that the group uses
+    CSV-driven adjacency multipliers instead of the global scalar
+    ADJACENCY_STRENGTH fallback. In v3.1 only the simple scalar case is
+    supported: StateAttributeTypeId, NeighborhoodRadius, and
+    UpdateFrequency are parsed but not yet used — they are reserved for
+    the attribute-based interpolated-lookup mechanic (a separate, larger
+    feature requiring State Attribute Type/Values support).
+    """
+    group:                  str
+    state_class:            str | None = None
+    state_attribute_type:   str | None = None
+    neighborhood_radius:    float | None = None
+    update_frequency:       int | None = None
+
+
+@dataclass
+class TransitionAdjacencyMultiplierRule:
+    """
+    One row from TransitionAdjacencyMultipliers.csv.
+
+    Expected columns:
+        Iteration, Timestep, StratumId, SecondaryStratumId, TertiaryStratumId,
+        TransitionGroupId, AttributeValue, Amount, DistributionType,
+        DistributionFrequencyId, DistributionSD, DistributionMin, DistributionMax
+
+    In v3.1, only rows with AttributeValue blank are used — these apply
+    as a flat per-group strength (Amount), equivalent to the existing
+    ADJACENCY_STRENGTH mechanic but specified per-group via CSV instead
+    of a single global constant. Rows with AttributeValue populated are
+    parsed (for forward compatibility / round-tripping) but are not yet
+    used by the engine — that requires the attribute-based neighbourhood
+    lookup mechanic, not implemented in v3.1.
+    """
+    group:          str
+    amount:         float
+    attribute_value: float | None = None
+    iteration:      int | None = None
+    timestep:       int | None = None
+
+
+def load_transition_adjacency_setting(
+    path: str | Path,
+) -> list[TransitionAdjacencySettingRule]:
+    """
+    Parse TransitionAdjacencySetting.csv.
+
+    Returns
+    -------
+    list of TransitionAdjacencySettingRule. The set of group names present
+    in this file (via .group) determines which groups use CSV-driven
+    adjacency strength instead of the global ADJACENCY_STRENGTH /
+    STRICT_EXPANSION_GROUPS fallback.
+    """
+    path  = Path(path)
+    rules: list[TransitionAdjacencySettingRule] = []
+
+    with path.open(newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            group = _strip_type_suffix(row.get("TransitionGroupId", "").strip())
+            if not group:
+                continue
+
+            rules.append(TransitionAdjacencySettingRule(
+                group                 = group,
+                state_class           = row.get("StateClassId", "").strip() or None,
+                state_attribute_type  = row.get("StateAttributeTypeId", "").strip() or None,
+                neighborhood_radius   = _parse_float_or_none(row.get("NeighborhoodRadius", "")),
+                update_frequency      = _parse_int_or_none(row.get("UpdateFrequency", "")),
+            ))
+
+    print(f"  {len(rules)} adjacency setting rule(s) loaded "
+          f"for {len(set(r.group for r in rules))} group(s)")
+    return rules
+
+
+def load_transition_adjacency_multipliers(
+    path: str | Path,
+) -> list[TransitionAdjacencyMultiplierRule]:
+    """
+    Parse TransitionAdjacencyMultipliers.csv.
+
+    Rows with a blank Amount are skipped (malformed — Amount is required
+    per the source format). Rows with AttributeValue populated are parsed
+    but flagged with a one-time warning summary, since the interpolated
+    attribute-lookup mechanic is not yet implemented (v3.1 supports the
+    simple scalar case only).
+
+    Returns
+    -------
+    list of TransitionAdjacencyMultiplierRule
+    """
+    path  = Path(path)
+    rules: list[TransitionAdjacencyMultiplierRule] = []
+    n_attribute_rows = 0
+
+    with path.open(newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            group  = _strip_type_suffix(row.get("TransitionGroupId", "").strip())
+            amount = _parse_float_or_none(row.get("Amount", ""))
+            if not group or amount is None:
+                continue
+
+            attr_val = _parse_float_or_none(row.get("AttributeValue", ""))
+            if attr_val is not None:
+                n_attribute_rows += 1
+
+            rules.append(TransitionAdjacencyMultiplierRule(
+                group           = group,
+                amount          = amount,
+                attribute_value = attr_val,
+                iteration       = _parse_int_or_none(row.get("Iteration", "")),
+                timestep        = _parse_int_or_none(row.get("Timestep", "")),
+            ))
+
+    if n_attribute_rows:
+        print(f"  [Warning] {n_attribute_rows} row(s) have a populated "
+              f"AttributeValue — attribute-based interpolated adjacency "
+              f"lookup is not yet implemented; these rows' Amount values "
+              f"will be ignored unless a blank-AttributeValue row also "
+              f"exists for the same group.")
+
+    print(f"  {len(rules)} adjacency multiplier rule(s) loaded "
+          f"for {len(set(r.group for r in rules))} group(s)")
+    return rules
+
+
+def build_adjacency_strength_map(
+    multiplier_rules: list[TransitionAdjacencyMultiplierRule],
+) -> dict[str, float]:
+    """
+    Collapse TransitionAdjacencyMultiplierRule rows into a simple
+    {group: strength} map, using only the blank-AttributeValue (flat
+    scalar) rows. If multiple blank-AttributeValue rows exist for the
+    same group (e.g. across different timesteps), the LAST one in file
+    order wins — matches the persistence-style semantics used elsewhere
+    in the format (most recent record applies).
+
+    Returns
+    -------
+    dict[group_name, strength] — ready to use as a per-group replacement
+    for the global ADJACENCY_STRENGTH constant.
+    """
+    strength_map: dict[str, float] = {}
+    for rule in multiplier_rules:
+        if rule.attribute_value is None:
+            strength_map[rule.group] = rule.amount
+    return strength_map

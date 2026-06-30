@@ -14,6 +14,11 @@ from .patches import (
     grow_patch,
     grow_patches_for_group,
 )
+from .targets import (
+    resolve_targets_per_timestep,
+    scale_probability_to_target,
+    target_to_patch_budget,
+)
 
 __all__ = [
     "build_transition_index",
@@ -30,4 +35,7 @@ __all__ = [
     "sample_patch_size_ha",
     "grow_patch",
     "grow_patches_for_group",
+    "resolve_targets_per_timestep",
+    "scale_probability_to_target",
+    "target_to_patch_budget",
 ]
