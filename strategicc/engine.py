@@ -945,6 +945,8 @@ class StrategiccEngine:
                             "iteration":  iteration,
                             "year":       rec.year,
                             "flow_type":  rec.flow_type,
+                            "from_stock": rec.from_stock,   # v3.3
+                            "to_stock":   rec.to_stock,      # v3.3
                             "class_name": class_name,
                             "amount":     amount,
                         })

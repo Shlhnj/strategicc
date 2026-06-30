@@ -33,6 +33,7 @@ from .aggregation import (
     aggregate_stock_by_class,
     aggregate_flow_by_class,
     aggregate_flow_by_type,
+    build_asset_account,
 )
 
 __all__ = [
@@ -45,5 +46,5 @@ __all__ = [
     "init_stocks", "run_flows_for_timestep", "sample_flow_multipliers",
     "build_age_attribute_cache", "FlowRecord",
     "aggregate_stock_by_class", "aggregate_flow_by_class",
-    "aggregate_flow_by_type",
+    "aggregate_flow_by_type", "build_asset_account",
 ]

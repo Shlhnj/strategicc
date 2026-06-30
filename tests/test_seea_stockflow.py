@@ -210,6 +210,7 @@ def test_aggregate_flow_by_class_reads_per_class_breakdown(tmp_path):
         d.mkdir()
         pd.DataFrame([
             {"iteration": i, "year": 2022, "flow_type": "NPP",
+             "from_stock": "Atmosphere", "to_stock": "Biomass",
              "class_name": "Mangrove", "amount": 1000.0 * i},
         ]).to_csv(d / "flow_log_by_class.csv", index=False)
 
@@ -251,3 +252,139 @@ def test_aggregate_stock_by_class_masks_by_modal_class(tmp_path):
     ]["total"].values[0]
     assert mangrove_total == pytest.approx(20.0)
     assert aqua_total == pytest.approx(10.0)
+
+
+# ── build_asset_account (v3.3) ─────────────────────────────────────────────────
+
+from strategicc.stockflow.aggregation import build_asset_account
+
+
+def test_asset_account_no_emission_pure_accumulation():
+    classes = {1: StateClass(1, "Mangrove", "Mangrove:All", (255, 0, 100, 0))}
+    stock_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 0.0},
+        {"year": 2023, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 1840.0},
+    ])
+    flow_df = pd.DataFrame([
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 1840.0},
+    ])
+    account = build_asset_account(
+        stock_df=stock_df, flow_df=flow_df, stock_types=["Biomass"],
+        classes=classes, start_year=2022, n_timesteps=1,
+    )
+    row = account[account["year"] == 2023].iloc[0]
+    assert row["opening_balance"] == 0.0
+    assert row["additions"] == 1840.0
+    assert row["reductions"] == 0.0
+    assert row["closing_balance_reconciled"] == 1840.0
+    assert row["closing_balance_actual"] == 1840.0
+    assert row["reconciliation_diff"] == pytest.approx(0.0, abs=1e-6)
+
+def test_asset_account_with_additions_and_reductions():
+    classes = {1: StateClass(1, "Mangrove", "Mangrove:All", (255, 0, 100, 0))}
+    stock_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 184.0},
+        {"year": 2023, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 20.24},
+    ])
+    flow_df = pd.DataFrame([
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 18.4},
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "Emission",
+         "from_stock": "Biomass", "to_stock": "Atmosphere", "total": 182.16},
+    ])
+    account = build_asset_account(
+        stock_df=stock_df, flow_df=flow_df, stock_types=["Biomass"],
+        classes=classes, start_year=2022, n_timesteps=1,
+    )
+    row = account[account["year"] == 2023].iloc[0]
+    assert row["opening_balance"] == 184.0
+    assert row["additions"] == 18.4
+    assert row["reductions"] == 182.16
+    assert row["closing_balance_reconciled"] == pytest.approx(20.24, abs=1e-6)
+    assert row["reconciliation_diff"] == pytest.approx(0.0, abs=1e-6)
+
+def test_asset_account_rollforward_opening_equals_prior_closing():
+    """Year N's opening balance must equal year N-1's reconciled closing."""
+    classes = {1: StateClass(1, "Mangrove", "Mangrove:All", (255, 0, 100, 0))}
+    stock_df = pd.DataFrame([
+        {"year": y, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 100.0 * i}
+        for i, y in enumerate([2022, 2023, 2024])
+    ])
+    flow_df = pd.DataFrame([
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 100.0},
+        {"year": 2024, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 100.0},
+    ])
+    account = build_asset_account(
+        stock_df=stock_df, flow_df=flow_df, stock_types=["Biomass"],
+        classes=classes, start_year=2022, n_timesteps=2,
+    )
+    row_2023 = account[account["year"] == 2023].iloc[0]
+    row_2024 = account[account["year"] == 2024].iloc[0]
+    assert row_2024["opening_balance"] == row_2023["closing_balance_reconciled"]
+
+def test_asset_account_surfaces_discrepancy_not_hidden():
+    """
+    Regression / design test: when Additions/Reductions (derived from
+    flow_log medians) don't perfectly reconcile with the actual stock
+    raster median, the discrepancy must be reported explicitly via
+    reconciliation_diff, never silently swallowed or forced to zero.
+    """
+    classes = {1: StateClass(1, "Mangrove", "Mangrove:All", (255, 0, 100, 0))}
+    stock_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 0.0},
+        {"year": 2023, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 100.0},
+    ])
+    flow_df = pd.DataFrame([
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 50.0},
+    ])
+    account = build_asset_account(
+        stock_df=stock_df, flow_df=flow_df, stock_types=["Biomass"],
+        classes=classes, start_year=2022, n_timesteps=1,
+    )
+    row = account[account["year"] == 2023].iloc[0]
+    assert row["closing_balance_reconciled"] == 50.0
+    assert row["closing_balance_actual"] == 100.0
+    assert row["reconciliation_diff"] == 50.0
+
+def test_asset_account_multiple_classes_independent():
+    classes = {
+        1: StateClass(1, "Mangrove",    "Mangrove:All",    (255,0,100,0)),
+        2: StateClass(2, "Aquaculture", "Aquaculture:All", (255,255,0,255)),
+    }
+    stock_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 0.0},
+        {"year": 2022, "class_id": 2, "class_name": "Aquaculture",
+         "stock_type": "Biomass", "total": 0.0},
+        {"year": 2023, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 100.0},
+        {"year": 2023, "class_id": 2, "class_name": "Aquaculture",
+         "stock_type": "Biomass", "total": 0.0},
+    ])
+    flow_df = pd.DataFrame([
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 100.0},
+    ])
+    account = build_asset_account(
+        stock_df=stock_df, flow_df=flow_df, stock_types=["Biomass"],
+        classes=classes, start_year=2022, n_timesteps=1,
+    )
+    mangrove_row = account[
+        (account["year"]==2023) & (account["class_name"]=="Mangrove")
+    ].iloc[0]
+    aqua_row = account[
+        (account["year"]==2023) & (account["class_name"]=="Aquaculture")
+    ].iloc[0]
+    assert mangrove_row["additions"] == 100.0
+    assert aqua_row["additions"] == 0.0   # no flow for Aquaculture this year

@@ -90,13 +90,13 @@ def main() -> None:
         uncertainty  = True,
     )
 
-    # ── 7. Stock & Flow aggregation (v3.2) ────────────────────────────────────
+    # ── 7. Stock & Flow aggregation (v3.2) + Asset Account (v3.3) ─────────────
     stock_df = None
     flow_df  = None
     if engine.use_stockflow and engine._stock_types:
         print("\n[18] Aggregating Stock & Flow outputs by class...")
         from strategicc.stockflow.aggregation import (
-            aggregate_stock_by_class, aggregate_flow_by_class,
+            aggregate_stock_by_class, aggregate_flow_by_class, build_asset_account,
         )
         stock_df = aggregate_stock_by_class(
             iter_dirs   = engine.iter_dirs,
@@ -111,6 +111,31 @@ def main() -> None:
         flow_df.to_csv(summary_dir / "flow_by_class.csv", index=False)
         print(f"  stock_by_class.csv saved ({len(stock_df)} rows)")
         print(f"  flow_by_class.csv saved ({len(flow_df)} rows)")
+
+        print("\n[18b] Building SEEA-EA asset account (v3.3)...")
+        asset_account = build_asset_account(
+            stock_df    = stock_df,
+            flow_df     = flow_df,
+            stock_types = engine._stock_types,
+            classes     = engine.classes,
+            start_year  = engine.start_year,
+            n_timesteps = engine.n_timesteps,
+        )
+        asset_dir = engine.out_dir / "seea"
+        asset_dir.mkdir(parents=True, exist_ok=True)
+        asset_account.to_csv(asset_dir / "seea_asset_account.csv", index=False)
+        print(f"  seea_asset_account.csv saved ({len(asset_account)} rows)")
+
+        max_diff = asset_account["reconciliation_diff"].abs().max()
+        if max_diff > 0:
+            pct_of_stock = (
+                max_diff / asset_account["closing_balance_actual"].abs().clip(lower=1).max()
+                * 100
+            )
+            print(f"  Max reconciliation diff: {max_diff:.4f} "
+                  f"(~{pct_of_stock:.2f}% of largest stock total) — expected "
+                  f"Monte Carlo noise from median-of-sums vs sum-of-medians; "
+                  f"large values may indicate a missing flow pathway.")
     else:
         print("\n[18] Stock & Flow aggregation skipped — USE_STOCKFLOW=False")
 

@@ -2,6 +2,7 @@ StateClassId,ServiceName,ServiceType,ValuePerHa,Currency,PhysicalUnit,PhysicalVa
 Water_body,,,,,,,
 Tidal_flat,Coastal Protection,Regulating,5000000,IDR,,,
 Mangrove,Carbon Sequestration,Regulating,75000,IDR,MgC,,flow:NPP
+Mangrove,Carbon Storage,Regulating,75000,IDR,MgC,,stock:Biomass
 Mangrove,Coastal Protection,Regulating,15000000,IDR,,,
 Mangrove,Fishery Nursery,Provisioning,8000000,IDR,,,
 Mangrove,Ecotourism,Cultural,12500000,IDR,,,
