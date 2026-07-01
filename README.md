@@ -43,7 +43,7 @@ area_modal_df = outputs.modal_to_area_table(modal_maps, engine.classes,
     engine.px_area, engine.area_unit)
 
 acct = SEEAAccount(area_modal_df, trans_df, engine.ecosystem_services,
-    engine.classes, engine.px_area)
+    engine.classes, engine.px_area, px_area_ha=engine.px_area_ha)
 save_all_accounts(acct, engine.out_dir / "seea")
 ```
 
