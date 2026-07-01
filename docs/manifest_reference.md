@@ -15,13 +15,13 @@ See [`config` reference](reference/config.md) for the rules around manifest mode
 Variable = Value          #type  (optional description)
 ```
 
-Lines starting with `#` are comments and ignored. The `#type` hint is for human reference only — the parser uses a fixed internal schema, not the hint text, to decide how to cast each value. Recognised types: `int`, `float`, `bool` (accepts `True`/`False` or `Yes`/`No`), `path`, `str`.
+Lines starting with `#` are comments and ignored. The `#type` hint is for human reference only, the parser uses a fixed internal schema, not the hint text, to decide how to cast each value. Recognised types: `int`, `float`, `bool` (accepts `True`/`False` or `Yes`/`No`), `path`, `str`.
 
-Documentation/example content (the file's own header explanation, and an appendix of filled CSV examples) is wrapped in triple-backtick fences and skipped entirely during parsing — this means example text can safely say things like `Variable = Value` without being mistaken for a real config line.
+Documentation/example content (the file's own header explanation, and an appendix of filled CSV examples) is wrapped in triple-backtick fences and skipped entirely during parsing, this means example text can safely say things like `Variable = Value` without being mistaken for a real config line.
 
 A full example file with every section filled in and a worked CSV example appendix ships in `inputs/RunManifest.txt`.
 
-## Section 1 — Initial Conditions (Spatial)
+## Section 1 Initial Conditions (Spatial)
 
 | Variable | Maps to | Type |
 |---|---|---|
@@ -32,9 +32,9 @@ A full example file with every section filled in and a worked CSV example append
 | `LULCZipPath` | `LULC_ZIP_PATH` | path |
 | `InitialStateClassYear` | `INITIAL_SC_YEAR` | int |
 
-If `FetchInitialStateClassFromZip=True`, `StateClassFileName` is ignored and the initial raster is instead extracted from `LULCZipPath` for the year `InitialStateClassYear` — see [calibration reference](reference/calibration.md).
+If `FetchInitialStateClassFromZip=True`, `StateClassFileName` is ignored and the initial raster is instead extracted from `LULCZipPath` for the year `InitialStateClassYear`, see [calibration reference](reference/calibration.md).
 
-## Section 2 — Multi-row CSV Inputs
+## Section 2 Multi-row CSV Inputs
 
 | Variable | Maps to |
 |---|---|
@@ -53,7 +53,7 @@ If `FetchInitialStateClassFromZip=True`, `StateClassFileName` is ignored and the
 
 All `path` type.
 
-## Section 3 — Run Control
+## Section 3 Run Control
 
 | Variable | Maps to | Type | Notes |
 |---|---|---|---|
@@ -63,7 +63,7 @@ All `path` type.
 | `RNG_SEED` | `RNG_SEED` | int | |
 | `AREA_UNIT` | `AREA_UNIT` | str | `ha`, `km2`, or `px` |
 
-## Section 4 — Feature Toggles
+## Section 4 Feature Toggles
 
 | Variable | Maps to |
 |---|---|
@@ -76,7 +76,7 @@ All `path` type.
 
 All `bool` type.
 
-## Section 5 — Output Options (Non-Spatial)
+## Section 5 Output Options (Non-Spatial)
 
 | Variable | Maps to | Type |
 |---|---|---|
@@ -87,7 +87,7 @@ All `bool` type.
 
 Controls whether `area_table.csv` / `transition_log.csv` are saved per iteration, and at what timestep stride.
 
-## Section 6 — Output Options (Spatial)
+## Section 6 Output Options (Spatial)
 
 | Variable | Maps to | Type |
 |---|---|---|
@@ -95,9 +95,9 @@ Controls whether `area_table.csv` / `transition_log.csv` are saved per iteration
 | `RasterOutputAge` / `RasterOutputAgeTimesteps` | `RASTER_OUTPUT_AGE` / `_TIMESTEPS` | bool / int |
 | `RasterOutputTransitionEvents` / `RasterOutputTransitionEventTimesteps` | `RASTER_OUTPUT_TRANSITION_EVENTS` / `_TIMESTEPS` | bool / int |
 
-`*Timesteps` fields control the save stride — e.g. `RasterOutputSCTimesteps=2` saves every second timestep's LULC raster instead of every one (the final timestep is always saved regardless of stride).
+`*Timesteps` fields control the save stride (e.g. `RasterOutputSCTimesteps=2`) saves every second timestep's LULC raster instead of every one (the final timestep is always saved regardless of stride).
 
-## Section 7 — Stock & Flow
+## Section 7 Stock & Flow
 
 | Variable | Maps to | Type |
 |---|---|---|
