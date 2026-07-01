@@ -1,4 +1,4 @@
-# Guide 2 — Calibration, Spatial Simulation, and SEEA-EA
+# Guide 2: Calibration, Spatial Simulation, and SEEA-EA
 
 **Complexity:** Intermediate
 **Full script:** `strategicc_examples/example2_calibration_stsm_seea.py`
@@ -12,7 +12,7 @@ You'll learn to:
 3. **Aggregate** outcomes across iterations
 4. Run **SEEA-EA** on the simulated future
 
-## Step 1 — Calibrate from historical data
+## Step 1 Calibrate from historical data
 
 If you have several years of classified imagery (a zip of yearly GeoTIFFs, auto-detected by year in the filename), STRATEGICC can derive transition rates directly from the observed land cover changes:
 
@@ -32,7 +32,7 @@ yearly = compute_yearly_transition_counts(ts)
 
 `compute_yearly_transition_counts()` is computed once and feeds both outputs below — this guarantees `Transitions.csv` and `TransitionMultipliers.csv` stay mathematically consistent with each other (the mean of the sampled multipliers will equal exactly 1.0).
 
-You must map observed `(from_class_id, to_class_id)` pixel transitions to a named transition group — pairs not listed are excluded as classification noise:
+The user must map observed `(from_class_id, to_class_id)` pixel transitions to a named transition group, pairs not listed are excluded as classification noise:
 
 ```python
 group_map = {(1, 3): "Aquaculture_expansion"}   # Mangrove(1) -> Aquaculture(3)
@@ -44,9 +44,9 @@ temporal_df = compute_temporal_distribution(yearly, group_map, min_years=3)
 save_temporal_distribution_csv(temporal_df, "inputs/TransitionMultipliers.csv")
 ```
 
-## Step 2 — Build a spatial multiplier raster
+## Step 2 Build a spatial multiplier raster
 
-Spatial multipliers bias *where* a transition is more or less likely — e.g. cells closer to existing aquaculture ponds are more likely to convert. STRATEGICC expects a 0-1 normalised raster (1.0 = highest suitability):
+Spatial multipliers bias *where* a transition is more or less likely (e.g. cells closer to existing aquaculture ponds are more likely to convert). STRATEGICC expects a 0-1 normalised raster (1.0 = highest suitability):
 
 ```python
 from scipy.ndimage import distance_transform_edt
@@ -65,7 +65,7 @@ with open("inputs/TransitionSpatialMultipliers.csv", "w") as f:
 ''')
 ```
 
-## Step 3 — Run the simulation
+## Step 3 Run the simulation
 
 ```python
 from strategicc import StrategiccEngine
@@ -92,9 +92,9 @@ engine.diagnostic()   # prints expected transitions before running, useful sanit
 engine.run()
 ```
 
-`engine.diagnostic()` is worth always calling before `run()` — it prints the expected number of transitions per pathway given your inputs, so you can catch a misconfigured probability or missing multiplier before spending time on a full Monte Carlo run.
+`engine.diagnostic()` is worth always calling before `run()`, it prints the expected number of transitions per pathway given your inputs, so you can catch a misconfigured probability or missing multiplier before spending time on a full Monte Carlo run.
 
-## Step 4 — Aggregate across iterations
+## Step 4 Aggregate across iterations
 
 Each of the 20 iterations is stochastic and slightly different. `outputs.aggregate_spatial()` collapses them into a single modal map per timestep (the most frequent class per cell across all iterations) plus an uncertainty raster (% agreement):
 
@@ -116,9 +116,9 @@ area_modal_df = outputs.modal_to_area_table(
 )
 ```
 
-## Step 5 — SEEA-EA on the projected future
+## Step 5 SEEA-EA on the projected future
 
-Same `SEEAAccount` as Guide 1, but now `area_modal_df` covers every simulated year, and `trans_df` actually has transition data — so the transition matrix and change-in-value accounts become meaningful:
+Same `SEEAAccount` as Guide 1, but now `area_modal_df` covers every simulated year, and `trans_df` actually has transition data, so the transition matrix and change-in-value accounts become meaningful:
 
 ```python
 from strategicc.accounting import SEEAAccount, save_all_accounts, plot_monetary_flows
@@ -145,4 +145,4 @@ If your transition probabilities are low relative to the number of iterations an
 
 ## What this doesn't cover
 
-This guide uses static (Mode A/B) ecosystem service values — carbon is priced at a flat rate per hectare, not derived from an actual simulated carbon cycle. For that, continue to [Guide 3](03_stockflow_full.md).
+This guide uses static (Mode A/B) ecosystem service values; carbon is priced at a flat rate per hectare, not derived from an actual simulated carbon cycle. For that, continue to [Guide 3](03_stockflow_full.md).
