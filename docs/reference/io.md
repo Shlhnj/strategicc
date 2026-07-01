@@ -1,6 +1,6 @@
 # `strategicc.io`
 
-Raster and CSV reading/writing — the foundation everything else builds on. Most of these are used internally by `StrategiccEngine`, but the loaders are useful standalone (e.g. for [Guide 1](../guides/01_simple_seea.md)'s snapshot valuation, which calls them directly without a full simulation).
+Raster and CSV reading/writing, the foundation everything else builds on. Most of these are used internally by `StrategiccEngine`, but the loaders are useful standalone (e.g. for [Guide 1](../guides/01_simple_seea.md)'s snapshot valuation, which calls them directly without a full simulation).
 
 ```python
 from strategicc.io import (
@@ -36,7 +36,7 @@ One loader per ST-Sim-format input file:
 | `load_transition_targets` | `TransitionTargets.csv` -> `list[TransitionTargetRule]` |
 | `load_transition_adjacency_setting` / `_multipliers` + `build_adjacency_strength_map` | `TransitionAdjacencySetting/Multipliers.csv` -> `{group: strength}` |
 
-Each loader returns a list of small dataclasses (e.g. `TransitionRule`, `StateClass`) mirroring the CSV's columns, with malformed or incomplete rows skipped and a printed warning rather than raising — a single bad row in a large hand-edited CSV won't crash an otherwise-valid run.
+Each loader returns a list of small dataclasses (e.g. `TransitionRule`, `StateClass`) mirroring the CSV's columns, with malformed or incomplete rows skipped and a printed warning rather than raising, a single bad row in a large hand-edited CSV won't crash an otherwise-valid run.
 
 ## Example: loading classes and a raster directly
 
