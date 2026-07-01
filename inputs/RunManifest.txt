@@ -1,6 +1,6 @@
 ```
 #================================================================
-#STRATEGICC — RunManifest.txt
+#STRATEGICC RunManifest.txt
 #================================================================
 #This file is the single master entry point for a STRATEGICC run.
 #It holds all scalar configuration (paths, run control, toggles)
@@ -39,32 +39,32 @@
 #SECTION 1 - INITIAL CONDITIONS (SPATIAL)
 #================================================================
 StateClassFileName        = 2022.tif              #path  (the initial LULC raster; ignored if FetchInitialStateClassFromZip=True)
-AgeFileName                = 2022_age.tif          #path  (initial age raster; blank if using AGE_INITIAL_CSV instead)
-StratumFileName             =                     #path  (blank = unused; not yet implemented)
-SecondaryStratumFileName     =                     #path  (blank = unused)
-TertiaryStratumFileName       =                     #path  (blank = unused)
+AgeFileName               = 2022_age.tif          #path  (initial age raster; blank if using AGE_INITIAL_CSV instead)
+StratumFileName           =                     #path  (blank = unused; not yet implemented)
+SecondaryStratumFileName  =                     #path  (blank = unused)
+TertiaryStratumFileName   =                     #path  (blank = unused)
 
 FetchInitialStateClassFromZip  = False                                    #bool  (if True, ignore StateClassFileName and pull the initial raster from a historical LULC zip instead)
-LULCZipPath                     = inputs/annual_lulc_1985_2022.zip          #path  (only used if FetchInitialStateClassFromZip=True; extracted ONCE to inputs/lulc_annual/, all years persisted)
-InitialStateClassYear            = 2022                                      #int   (which year within the zip to use as the initial raster)
+LULCZipPath                    = inputs/annual_lulc_1985_2022.zip          #path  (only used if FetchInitialStateClassFromZip=True; extracted ONCE to inputs/lulc_annual/, all years persisted)
+InitialStateClassYear          = 2022                                      #int   (which year within the zip to use as the initial raster)
 
 
 #================================================================
 #SECTION 2 - MULTI-ROW CSV INPUTS (paths to per-pathway/per-group tables)
 #================================================================
 STATE_CLASSES_CSV                   = inputs/State Class.csv                       #path
-TRANSITIONS_CSV                      = inputs/Transitions.csv                       #path
-SPATIAL_MULT_CSV                     = inputs/TransitionSpatialMultipliers.csv      #path
-TRANSITION_MULT_CSV                   = inputs/Transition Multiplier.csv             #path
-TRANSITION_TYPE_CSV                   = inputs/Transition Type.csv                   #path
-ECOSYSTEM_SERVICES_CSV                 = inputs/EcosystemServices.csv                 #path
-AGE_INITIAL_CSV                         = inputs/InitialAge.csv                        #path
-TRANSITION_SIZE_CSV                      = inputs/Transition Size Distribution.csv      #path
-TRANSITION_ADJACENCY_SETTING_CSV          = inputs/Transition Adjacency Setting.csv       #path
-TRANSITION_ADJACENCY_MULT_CSV              = inputs/Transition Adjacency Multipliers.csv  #path
-TERMINOLOGY_CSV                             = inputs/Terminology.csv                       #path
-MULT_DIR                                     = spatmult_uploads/                            #path  (folder OR .zip containing Transition Spatial Multiplier rasters; a .zip is auto-extracted once to a sibling folder)
-OUT_DIR                                       = strategicc_output/                           #path
+TRANSITIONS_CSV                     = inputs/Transitions.csv                       #path
+SPATIAL_MULT_CSV                    = inputs/TransitionSpatialMultipliers.csv      #path
+TRANSITION_MULT_CSV                 = inputs/Transition Multiplier.csv             #path
+TRANSITION_TYPE_CSV                 = inputs/Transition Type.csv                   #path
+ECOSYSTEM_SERVICES_CSV              = inputs/EcosystemServices.csv                 #path
+AGE_INITIAL_CSV                     = inputs/InitialAge.csv                        #path
+TRANSITION_SIZE_CSV                 = inputs/Transition Size Distribution.csv      #path
+TRANSITION_ADJACENCY_SETTING_CSV    = inputs/Transition Adjacency Setting.csv       #path
+TRANSITION_ADJACENCY_MULT_CSV       = inputs/Transition Adjacency Multipliers.csv  #path
+TERMINOLOGY_CSV                     = inputs/Terminology.csv                       #path
+MULT_DIR                            = spatmult_uploads/                            #path  (folder OR .zip containing Transition Spatial Multiplier rasters; a .zip is auto-extracted once to a sibling folder)
+OUT_DIR                             = strategicc_output/                           #path
 
 
 #================================================================
@@ -81,49 +81,49 @@ AREA_UNIT      = ha     #str    (ha | km2 | px)
 #SECTION 4 - FEATURE TOGGLES
 #================================================================
 USE_ADJACENCY          = True   #bool
-USE_SPATIAL_MULT        = True   #bool
-USE_TRANS_MULTIPLIER     = True   #bool
-USE_SEEA                  = True   #bool
-USE_AGE                    = True   #bool
-SAVE_AGE_RASTERS            = True   #bool
+USE_SPATIAL_MULT       = True   #bool
+USE_TRANS_MULTIPLIER   = True   #bool
+USE_SEEA               = True   #bool
+USE_AGE                = True   #bool
+SAVE_AGE_RASTERS       = True   #bool
 
 
 #================================================================
 #SECTION 5 - OUTPUT OPTIONS (NON-SPATIAL)
 #================================================================
 SummaryOutputSC            = Yes   #bool  (save state-class area summary table)
-SummaryOutputSCTimesteps    = 1     #int   (save every N timesteps)
-SummaryOutputTR              = Yes   #bool  (save transition summary / log)
-SummaryOutputTRTimesteps      = 1     #int
+SummaryOutputSCTimesteps   = 1     #int   (save every N timesteps)
+SummaryOutputTR            = Yes   #bool  (save transition summary / log)
+SummaryOutputTRTimesteps   = 1     #int
 
 
 #================================================================
 #SECTION 6 - OUTPUT OPTIONS (SPATIAL)
 #================================================================
-RasterOutputSC                        = Yes   #bool  (save state-class raster per timestep)
-RasterOutputSCTimesteps                = 1     #int
-RasterOutputAge                         = Yes   #bool  (save age raster per timestep)
-RasterOutputAgeTimesteps                 = 1     #int
-RasterOutputTransitionEvents              = Yes   #bool  (save transition event raster)
-RasterOutputTransitionEventTimesteps       = 1     #int
+RasterOutputSC                       = Yes   #bool  (save state-class raster per timestep)
+RasterOutputSCTimesteps              = 1     #int
+RasterOutputAge                      = Yes   #bool  (save age raster per timestep)
+RasterOutputAgeTimesteps             = 1     #int
+RasterOutputTransitionEvents         = Yes   #bool  (save transition event raster)
+RasterOutputTransitionEventTimesteps = 1     #int
 
 
 ================================================================
 SECTION 7 - STOCK & FLOW
 ================================================================
 USE_STOCKFLOW                  = False   #bool  (set True to enable carbon/material stock-flow tracking)
-STOCK_TYPE_CSV                  = inputs/StockType.csv                  #path
-STOCK_GROUP_CSV                  = inputs/StockGroup.csv                 #path
-STOCK_GROUP_MEMBERSHIP_CSV        = inputs/StockTypeGroupMembership.csv   #path
-FLOW_TYPE_CSV                      = inputs/FlowType.csv                   #path
-FLOW_ORDER_CSV                      = inputs/FlowOrder.csv                  #path
-FLOW_PATHWAYS_CSV                    = inputs/FlowPathways.csv               #path
-FLOW_MULTIPLIER_CSV                   = inputs/FlowMultiplier.csv             #path
-STATE_ATTRIBUTE_TYPE_CSV               = inputs/StateAttributeType.csv         #path
-STATE_ATTRIBUTE_VALUES_CSV              = inputs/StateAttributeValues.csv       #path
-INITIAL_STOCK_NON_SPATIAL_CSV            = inputs/InitialStockNonSpatial.csv     #path
-SAVE_STOCK_RASTERS                        = True   #bool  (save per-stock-type rasters per timestep)
-SEEA_VALUATION_MODE                        = area    #str   (area | stock_flow)
+STOCK_TYPE_CSV                 = inputs/StockType.csv                  #path
+STOCK_GROUP_CSV                = inputs/StockGroup.csv                 #path
+STOCK_GROUP_MEMBERSHIP_CSV     = inputs/StockTypeGroupMembership.csv   #path
+FLOW_TYPE_CSV                  = inputs/FlowType.csv                   #path
+FLOW_ORDER_CSV                 = inputs/FlowOrder.csv                  #path
+FLOW_PATHWAYS_CSV              = inputs/FlowPathways.csv               #path
+FLOW_MULTIPLIER_CSV            = inputs/FlowMultiplier.csv             #path
+STATE_ATTRIBUTE_TYPE_CSV       = inputs/StateAttributeType.csv         #path
+STATE_ATTRIBUTE_VALUES_CSV     = inputs/StateAttributeValues.csv       #path
+INITIAL_STOCK_NON_SPATIAL_CSV  = inputs/InitialStockNonSpatial.csv     #path
+SAVE_STOCK_RASTERS             = True   #bool  (save per-stock-type rasters per timestep)
+SEEA_VALUATION_MODE            = area    #str   (area | stock_flow)
 
 ```
 #================================================================
