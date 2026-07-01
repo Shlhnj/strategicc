@@ -1,19 +1,21 @@
 # Guide 1 — Getting Started: SEEA-EA from a Single LULC Raster
 
 **Complexity:** Beginner
+
 **Full script:** `strategicc_examples/example1_simple_seea.py`
 
 This is the simplest possible use of STRATEGICC — no simulation at all. You have one land cover raster (e.g. this year's classified satellite image) and want to know what the landscape is worth, broken down by ecosystem service.
 
-Use this when you only care about a **snapshot valuation** of one map, not how the landscape might change over time.
+Use this to do a quick analysis about **snapshot valuation** of a landscape. No timeseries. No modelling. 
 
 ## What you need
 
-- A classified LULC raster (GeoTIFF, integer class IDs)
+- A classified LULC raster (GeoTIFF, with integer class IDs)
 - A `StateClasses.csv` defining your classes
 - An `EcosystemServices.csv` defining economic value per class per hectare
 
 ## Step 1 — Define your classes
+User can define their land cover class using csv file or directly in python.
 
 ```python
 with open("inputs/StateClasses.csv", "w") as f:
@@ -28,6 +30,7 @@ Cropland:All,Cropland,All,4,"255,255,255,0",,,No
 ## Step 2 — Define ecosystem service values
 
 This is Mode A/B valuation — a static value per hectare, not derived from any simulation:
+User can define their land cover class monetary value or service value of each land cover value using csv file or directly in python.
 
 ```python
 with open("inputs/EcosystemServices.csv", "w") as f:
@@ -40,7 +43,7 @@ Cropland,Crop Provisioning,Provisioning,30000000,IDR,kg/ha,5000
 ''')
 ```
 
-`ValuePerHa` is the price per hectare per year. If you also know the physical quantity supplied (e.g. carbon sequestered), set `PhysicalUnit` and `PhysicalValuePerHa` too — this produces a physical flow account alongside the monetary one.
+`ValuePerHa` is the price per hectare per year. If user also know the physical quantity supplied (e.g. carbon sequestered), set `PhysicalUnit` and `PhysicalValuePerHa` too — this produces a physical flow account alongside the monetary one.
 
 ## Step 3 — Compute extent + valuation directly
 
