@@ -1,18 +1,18 @@
-# Guide 3 — Full Pipeline: Age, Stock & Flow, and Dynamic Valuation
+# Guide 3: Full Pipeline: Age, Stock & Flow, and Dynamic Valuation
 
 **Complexity:** Advanced
 **Full script:** `strategicc_examples/example3_full_stockflow_seea.py`
 
-This is the full STRATEGICC pipeline, building on [Guide 2](02_calibration_stsm.md) by adding carbon Stock & Flow accounting. The carbon valuation responds to age structure, transition dynamics, and stochastic variation — not a flat per-hectare number.
+This is the full STRATEGICC pipeline, building on [Guide 2](02_calibration_stsm.md) by adding carbon Stock & Flow accounting. The carbon valuation responds to age structure, transition dynamics, and stochastic variation, not a flat per-hectare number.
 
 You'll learn to:
 
 1. **Calibrate** transition rates *and* a continuous age raster from historical data
 2. **Simulate** with age tracking, so carbon flows can be age-indexed
 3. Track **Stock & Flow**: NPP grows carbon every year (automatic, age-indexed), Emission releases it on conversion (transition-triggered)
-4. Run **SEEA-EA Mode C** valuation — carbon priced from the actual simulated quantity, plus a full asset account
+4. Run **SEEA-EA Mode C** valuation: carbon priced from the actual simulated quantity, plus a full asset account
 
-## Step 1 — Calibrate transitions *and* age
+## Step 1 Calibrate transitions *and* age
 
 ```python
 from strategicc.calibration import (
@@ -27,9 +27,9 @@ age_result = compute_age_raster(ts)   # continuous age, backtracked from the who
 save_age_raster(age_result, "inputs/age.tif")
 ```
 
-A longer historical record (here, 13 years) gives the age backtracking more to work with — `compute_age_raster()` walks backward from the baseline year counting how long each cell has continuously held its current class.
+A longer historical record (here, 13 years) gives the age backtracking more to work with, `compute_age_raster()` walks backward from the baseline year counting how long each cell has continuously held its current class.
 
-## Step 2 — Define the carbon cycle
+## Step 2 Define the carbon cycle
 
 Three new CSVs define the Stock & Flow mechanic. Stock types are the pools material moves between:
 
@@ -74,7 +74,7 @@ with open("inputs/StateAttributeValues.csv", "w") as f:
 
 These rates (5.1, 11.0, 18.4 Mg C/ha/yr) are drawn from real published mangrove carbon literature ([Alongi 2020](https://doi.org/10.3390/jmse8100767)) — the package's own Stock & Flow engine has been validated against the same source.
 
-## Step 3 — Mode C ecosystem services
+## Step 3 Mode C ecosystem services
 
 Instead of a static `PhysicalValuePerHa`, set `StockFlowSource` to pull the physical quantity directly from the simulated flow or stock:
 
@@ -90,7 +90,7 @@ Aquaculture,Aquaculture Fishery,Provisioning,45000000,IDR,kg/ha,800,
 
 `flow:NPP` and `stock:Biomass` are genuinely different things: flow values the annual carbon sequestration service (a recurring rate, good for something like a carbon credit payment); stock values the carbon currently stored (a standing asset, good for asset valuation). In Mode C, `ValuePerHa` is reinterpreted as price per physical unit, not per hectare.
 
-## Step 4 — Run with age tracking and Stock & Flow enabled
+## Step 4 Run with age tracking and Stock & Flow enabled
 
 ```python
 from strategicc import StrategiccEngine
@@ -129,7 +129,7 @@ engine.load()
 engine.run()
 ```
 
-## Step 5 — Aggregate Stock & Flow outputs
+## Step 5 Aggregate Stock & Flow outputs
 
 ```python
 from strategicc.stockflow import aggregate_stock_by_class, aggregate_flow_by_class, build_asset_account
@@ -142,7 +142,7 @@ stock_df = aggregate_stock_by_class(
 flow_df = aggregate_flow_by_class(engine.iter_dirs)
 ```
 
-## Step 6 — SEEA-EA asset account
+## Step 6 SEEA-EA asset account
 
 A full standard asset account (opening balance, additions, reductions, closing balance) for each stock type per class per year:
 
@@ -156,7 +156,7 @@ asset_account = build_asset_account(
 
 `asset_account` reports both a reconciled closing balance (`opening + additions - reductions`) and the actual closing balance from the stock rasters, plus their difference. A small difference is expected statistical noise from Monte Carlo aggregation (median-of-sums vs sum-of-medians); a large one may indicate a missing flow pathway.
 
-## Step 7 — Mode C SEEA-EA accounting
+## Step 7 Mode C SEEA-EA accounting
 
 ```python
 from strategicc.accounting import SEEAAccount, save_all_accounts
