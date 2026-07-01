@@ -4,7 +4,7 @@
 
 Python package implementing State-and-Transition Simulation Models (STSM, [Daniel et al. 2016](https://doi.org/10.1111/2041-210X.12597)) integrated with the UN's System of Environmental-Economic Accounting - Ecosystem Accounting ([SEEA-EA](https://seea.un.org/ecosystem-accounting)).
 
-The package can simulates how a landscape's land cover changes over time under stochastic, spatially explicit transition probabilities, then translates that simulated future into ecosystem service value, for example a carbon Stock & Flow accounting.
+The package can simulates how a landscape's land cover changes over time under stochastic, spatially explicit transition probabilities, then translates that simulated future into ecosystem service value, such as a carbon Stock & Flow accounting.
 
 ## Where to start
 
