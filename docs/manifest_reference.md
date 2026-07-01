@@ -1,6 +1,6 @@
 # `RunManifest.txt` Field Reference
 
-`RunManifest.txt` is an alternative to setting `strategicc.config` attributes directly — it lets you define an entire scenario in one plain-text file, loaded with:
+`RunManifest.txt` is an alternative to setting `strategicc.config` attributes directly; it lets you define an entire scenario in one plain-text file, loaded with:
 
 ```python
 import strategicc.config as cfg
