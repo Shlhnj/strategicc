@@ -1,75 +1,58 @@
-# strategicc
-STRATEGICC: State and Transition Integrated Economic-Environmental Accounting
+# STRATEGICC
 
-A python package implementation of State-and-Transition Simulation Model (STSM) framework laid by Daniel et al (2016) (https://doi.org/10.1111/2041-210X.12597), integrated with the System of Economic-Environmental Accounting - Ecosystem Accounting (SEEA-EA) by United Nations (https://seea.un.org/ecosystem-accounting).
+**State and Transition Integrated Economic-Environmental Accounting**
 
-## Usage
-### install the package
+A Python package implementing spatially explicit State-and-Transition Simulation Models ([Daniel et al. 2016](https://doi.org/10.1111/2041-210X.12597)) integrated with the UN's System of Environmental-Economic Accounting — Ecosystem Accounting ([SEEA-EA](https://seea.un.org/ecosystem-accounting)).
+
+## Install
+
+```bash
+pip install git+https://github.com/Shlhnj/strategicc.git
 ```
-!pip install git+https://github.com/Shlhnj/strategicc.git
-```
 
+## Quick start
 
-### Set Configuration
-
-```
+```python
 import strategicc.config as cfg
-from pathlib import Path
+from strategicc import StrategiccEngine, outputs
+from strategicc.accounting import SEEAAccount, save_all_accounts
 
-cfg.LULC_PATH          = Path("2022.tif")
-cfg.STATE_CLASSES_CSV  = Path("25062026 State Class.csv")
-cfg.TRANSITIONS_CSV    = Path("23062026_stsm_transition_probabilities.csv")
-cfg.SPATIAL_MULT_CSV   = Path("27062026 Transition Spatial Multipliers.csv")
-cfg.TRANSITION_MULT_CSV= Path("27062026 Transition Multipliers.csv")
-cfg.MULT_DIR           = Path("mult_spat/")   #folder for transition spatial multiplier
-cfg.OUT_DIR            = Path("strategicc_test") #output folder
+# Load everything from a single manifest file
+cfg.load_manifest("RunManifest.txt")
 
-
-cfg.ADJACENCY_STRENGTH   = 2
-cfg.START_YEAR           = 2022
-cfg.N_TIMESTEPS          = 30
-cfg.N_ITERATIONS         = 100    
-cfg.RNG_SEED             = 42
-
-cfg.USE_ADJACENCY        = True
-cfg.USE_SPATIAL_MULT     = True
-cfg.USE_TRANS_MULTIPLIER = True
-```
-
-### Diagnose Configuration
-
-```
-from strategicc import STSMEngine
-
-engine = STSMEngine.from_config()
+engine = StrategiccEngine.from_config()
 engine.load()
-engine.diagnostic()
-```
-
-### Run Engine
-
-```
 engine.run()
-```
 
-### Show Summary Plot
-
-```
-from strategicc import outputs
-
+# Aggregate and account
 summary_dir = engine.out_dir / "summary"
-
-print("Building summary tables...")
 area_df, trans_df = outputs.build_summary_tables(engine.iter_dirs, summary_dir)
+modal_maps = outputs.aggregate_spatial(engine.iter_dirs, engine.start_year,
+    engine.n_timesteps, engine.src_tags, summary_dir)
+area_modal_df = outputs.modal_to_area_table(modal_maps, engine.classes,
+    engine.px_area, engine.area_unit)
 
-print("Plotting area envelope...")
-outputs.plot_area_envelope(area_df, engine.classes, summary_dir)
-
-print("Plotting transition envelope...")
-outputs.plot_transition_envelope(trans_df, summary_dir)
-
-Show plots inline
-from IPython.display import Image, display
-display(Image(str(summary_dir / "area_envelope.png")))
-display(Image(str(summary_dir / "transition_envelope.png")))
+acct = SEEAAccount(area_modal_df, trans_df, engine.ecosystem_services,
+    engine.classes, engine.px_area)
+save_all_accounts(acct, engine.out_dir / "seea")
 ```
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/index.md):
+
+- **[Installation](docs/installation.md)**
+- **[Guide 1 — Simple SEEA-EA from a single raster](docs/guides/01_simple_seea.md)**
+- **[Guide 2 — Calibration + Simulation + SEEA-EA](docs/guides/02_calibration_stsm.md)**
+- **[Guide 3 — Full pipeline with Stock & Flow](docs/guides/03_stockflow_full.md)**
+- **[API Reference](docs/index.md#api-reference)**
+- **[RunManifest.txt field reference](docs/manifest_reference.md)**
+
+## Testing
+
+```bash
+pip install -e ".[dev]"
+pytest tests/
+```
+
+162 tests, all passing.

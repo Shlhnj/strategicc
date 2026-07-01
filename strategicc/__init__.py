@@ -1,9 +1,10 @@
 """
 strategicc — State and Transition Integrated Economic-Environmental Accounting
-v2.0
+v3.5
 """
 
 from .engine import StrategiccEngine
+from .animate import animate
 
-__version__ = "3.4.0"
-__all__ = ["StrategiccEngine"]
+__version__ = "3.5.2"
+__all__ = ["StrategiccEngine", "animate"]

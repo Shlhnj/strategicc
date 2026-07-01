@@ -34,12 +34,38 @@ def build_initial_age_from_raster(path: str) -> np.ndarray:
     """
     Load age raster from a GeoTIFF.
 
+    Tries Pillow first (no extra dependency for the common case). Some
+    16-bit unsigned GeoTIFFs written by rasterio (e.g. by
+    strategicc.calibration.save_age_raster()) use a tag layout that
+    Pillow's TIFF decoder cannot read ("unknown raw mode for given image
+    mode") even though the file is perfectly valid — this is a known
+    PIL/rasterio interoperability gap, not a corrupt file. In that case,
+    fall back to rasterio if it's installed, since it's already a soft
+    dependency for anyone using the calibration module that produces
+    these files in the first place.
+
     Returns
     -------
     uint16 array, shape (rows, cols)
     """
     from PIL import Image
-    arr = np.array(Image.open(str(path)), dtype=np.uint16)
+    try:
+        arr = np.array(Image.open(str(path)), dtype=np.uint16)
+    except ValueError as e:
+        if "unknown raw mode" not in str(e):
+            raise
+        try:
+            import rasterio
+        except ImportError:
+            raise ImportError(
+                f"Could not read '{path}' with Pillow (likely a rasterio-"
+                f"written 16-bit GeoTIFF using a tag layout Pillow's TIFF "
+                f"decoder doesn't support). Install rasterio as a fallback "
+                f"reader: pip install rasterio"
+            ) from e
+        with rasterio.open(str(path)) as src:
+            arr = src.read(1).astype(np.uint16)
+
     print(f"  Age raster loaded: shape={arr.shape}  "
           f"min={arr.min()}  max={arr.max()}  mean={arr.mean():.1f}")
     return arr
