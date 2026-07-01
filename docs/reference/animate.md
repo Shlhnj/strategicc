@@ -1,6 +1,6 @@
 # `strategicc.animate`
 
-Renders a two-panel animation: the modal LULC map on the left, a synced statistics panel on the right, one frame per timestep. Called manually after a simulation has completed and been aggregated — not part of the standard `run.py` pipeline.
+Renders a two-panel animation: the modal LULC map on the left, a synced statistics panel on the right, one frame per timestep. Called manually after a simulation has completed and been aggregated, not part of the standard `run.py` pipeline.
 
 ```python
 from strategicc import animate
@@ -10,7 +10,7 @@ path = animate(out_dir="strategicc_output/", panel="value_per_class")
 
 ## Requirements before calling
 
-`animate()` reads already-generated outputs, not raw simulation data — `outputs.aggregate_spatial()` must have already been run (it needs `lulc_mean_{year}.tif` files under `{out_dir}/summary/spatial/`), and `strategicc.config.STATE_CLASSES_CSV` must still point at a valid `StateClasses.csv` (used for the legend and colours).
+`animate()` reads already-generated outputs, not raw simulation data, `outputs.aggregate_spatial()` must have already been run (it needs `lulc_mean_{year}.tif` files under `{out_dir}/summary/spatial/`), and `strategicc.config.STATE_CLASSES_CSV` must still point at a valid `StateClasses.csv` (used for the legend and colours).
 
 ## Parameters
 
@@ -53,4 +53,4 @@ Historical-only frames (before the simulation's first year) are labelled "(histo
 
 ## Validation
 
-`animate()` raises `ValueError` for an unknown `panel` string, an unsupported `output_format`, or an empty year range after filtering — and `RuntimeError` if `output_format="mp4"` is requested but `ffmpeg` isn't installed.
+`animate()` raises `ValueError` for an unknown `panel` string, an unsupported `output_format`, or an empty year range after filtering, and `RuntimeError` if `output_format="mp4"` is requested but `ffmpeg` isn't installed.
