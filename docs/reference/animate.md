@@ -35,11 +35,11 @@ path = animate(out_dir="strategicc_output/", panel="value_per_class")
 | `"transitions_in"` | Median transitions INTO each class per year |
 | `None` | No right panel, map only |
 
-The right panel draws the full history as faint lines immediately, with a moving vertical cursor showing the current frame's year — not an animated redraw of the line itself.
+The right panel draws the full history as faint lines immediately, with a moving vertical cursor showing the current frame's year, not an animated redraw of the line itself.
 
 ## Including historical years
 
-If you've already run `strategicc.calibration.load_lulc_timeseries()` on a historical zip, pass the result directly — its years before the simulation's start year are prepended, producing one continuous past-to-future sequence:
+If you've already run `strategicc.calibration.load_lulc_timeseries()` on a historical zip, pass the result directly, its years before the simulation's start year are prepended, producing one continuous past-to-future sequence:
 
 ```python
 from strategicc.calibration import load_lulc_timeseries
