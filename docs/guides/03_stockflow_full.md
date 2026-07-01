@@ -99,19 +99,19 @@ engine = StrategiccEngine(
     lulc_path              = "2022.tif",
     state_classes_csv      = "inputs/StateClasses.csv",
     transitions_csv        = "inputs/Transitions.csv",
-    trans_mult_csv          = "inputs/TransitionMultipliers.csv",
-    ecosystem_services_csv   = "inputs/EcosystemServices.csv",
-    out_dir                   = "output/",
-    start_year   = 2022,
-    n_timesteps  = 10,
-    n_iterations = 15,
-    use_adjacency       = True,
-    use_trans_multiplier  = True,
-    use_seea                = True,
-    use_age                  = True,
-    age_raster_path           = "inputs/age.tif",
-    save_age_rasters           = True,
-    use_stockflow                = True,
+    trans_mult_csv         = "inputs/TransitionMultipliers.csv",
+    ecosystem_services_csv = "inputs/EcosystemServices.csv",
+    out_dir                = "output/",
+    start_year             = 2022,
+    n_timesteps            = 10,
+    n_iterations           = 15,
+    use_adjacency          = True,
+    use_trans_multiplier   = True,
+    use_seea               = True,
+    use_age                = True,
+    age_raster_path        = "inputs/age.tif",
+    save_age_rasters       = True,
+    use_stockflow          = True,
 )
 ```
 
@@ -119,11 +119,11 @@ The Stock & Flow CSVs themselves are configured via `strategicc.config` rather t
 
 ```python
 import strategicc.config as cfg
-cfg.STOCK_TYPE_CSV             = "inputs/StockType.csv"
+cfg.STOCK_TYPE_CSV              = "inputs/StockType.csv"
 cfg.FLOW_TYPE_CSV               = "inputs/FlowType.csv"
-cfg.FLOW_ORDER_CSV               = "inputs/FlowOrder.csv"
-cfg.FLOW_PATHWAYS_CSV             = "inputs/FlowPathways.csv"
-cfg.STATE_ATTRIBUTE_VALUES_CSV     = "inputs/StateAttributeValues.csv"
+cfg.FLOW_ORDER_CSV              = "inputs/FlowOrder.csv"
+cfg.FLOW_PATHWAYS_CSV           = "inputs/FlowPathways.csv"
+cfg.STATE_ATTRIBUTE_VALUES_CSV  = "inputs/StateAttributeValues.csv"
 
 engine.load()
 engine.run()
