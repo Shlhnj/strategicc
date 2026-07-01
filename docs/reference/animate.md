@@ -17,7 +17,7 @@ path = animate(out_dir="strategicc_output/", panel="value_per_class")
 | Parameter | Default | Description |
 |---|---|---|
 | `out_dir` | required | The simulation's output directory |
-| `panel` | `"value_per_class"` | Right-panel content — see options below, or `None` for a map-only animation |
+| `panel` | `"value_per_class"` | Right-panel content, see options below, or `None` for a map-only animation |
 | `start_year` / `end_year` | `None` (full range) | Restrict the animated year range; can extend into `historical_ts` years |
 | `frame_rate` | `2` | Frames per second |
 | `output_format` | `"gif"` | `"gif"` or `"mp4"` (MP4 requires the `ffmpeg` binary) |
