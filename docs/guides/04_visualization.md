@@ -1,6 +1,6 @@
 # Guide 4 — Visualization
 
-STRATEGICC produces all plots as PNG files saved directly to disk — no interactive window is shown, so they work correctly in Colab and headless environments. This guide covers every plot the package generates, where to find the output files, and how to display them inline in a notebook.
+STRATEGICC produces all plots as PNG files saved directly to disk, no interactive window is shown, so they work correctly in Colab and headless environments. This guide covers every plot the package generates, where to find the output files, and how to display them inline in a notebook.
 
 ## Simulation outputs (`strategicc.outputs`)
 
@@ -18,7 +18,7 @@ outputs.plot_area_envelope(area_df, engine.classes, summary_dir)
 # Saves to: summary_dir/area_envelope.png
 ```
 
-Shows area per class over time — one line per class (median across iterations) with a shaded min/max uncertainty band. This is the quickest way to see whether your simulated landscape is actually changing and how much spread there is across iterations.
+Shows area per class over time, one line per class (median across iterations) with a shaded min/max uncertainty band. This is the quickest way to see whether your simulated landscape is actually changing and how much spread there is across iterations.
 
 ### Transition envelope
 
@@ -47,7 +47,7 @@ outputs.plot_spatial_summary(
 # Saves to: summary_dir/spatial/spatial_summary.png
 ```
 
-A three-column grid: t=0, mid-simulation, and final year modal maps. If `uncertainty=True`, a second row shows the agreement raster (0-100%, how many iterations agreed with the modal class per cell) for each of the three snapshots — low agreement areas are where the simulation is genuinely uncertain about the outcome.
+A three-column grid: t=0, mid-simulation, and final year modal maps. If `uncertainty=True`, a second row shows the agreement raster (0-100%, how many iterations agreed with the modal class per cell) for each of the three snapshots, low agreement areas are where the simulation is genuinely uncertain about the outcome.
 
 ### Diagnostic maps (single iteration)
 
@@ -62,7 +62,7 @@ outputs.plot_transition_maps(transitions_iter1, lulc.shape, engine.classes,
 # Saves to: diag_dir/transition_maps.png
 ```
 
-These are diagnostic tools for inspecting one iteration's trajectory in detail — useful for verifying that transitions are happening in plausible spatial patterns before committing to a full multi-iteration run.
+These are diagnostic tools for inspecting one iteration's trajectory in detail, useful for verifying that transitions are happening in plausible spatial patterns before committing to a full multi-iteration run.
 
 ## SEEA-EA plots (`strategicc.accounting`)
 
@@ -101,7 +101,7 @@ plot_transition_heatmap(acct, seea_dir)
 # Saves to: seea_dir/seea_transition_heatmap.png
 ```
 
-Two heatmaps side by side: area converted from each class to each class (from `transition_matrix()`), and the implied monetary value change of those conversions. Cells on the diagonal represent no change. Bright off-diagonal cells indicate large conversions — the value-change heatmap immediately shows whether those conversions were economically significant.
+Two heatmaps side by side: area converted from each class to each class (from `transition_matrix()`), and the implied monetary value change of those conversions. Cells on the diagonal represent no change. Bright off-diagonal cells indicate large conversions, the value-change heatmap immediately shows whether those conversions were economically significant.
 
 ## Saving all CSVs and plots
 
@@ -112,11 +112,11 @@ plot_value_by_service(acct, seea_dir)
 plot_transition_heatmap(acct, seea_dir)
 ```
 
-`save_all_accounts()` saves CSVs only — the three plot functions are separate calls, giving you control over which ones to generate. A common pattern is to always save the CSVs and only generate the plots you actually need for a given figure.
+`save_all_accounts()` saves CSVs only, the three plot functions are separate calls, giving you control over which ones to generate. A common pattern is to always save the CSVs and only generate the plots you actually need for a given figure.
 
 ## Displaying plots inline in Colab or Jupyter
 
-All plot functions save to disk and close the figure — nothing is displayed automatically. To show a plot inline after saving:
+All plot functions save to disk and close the figure, nothing is displayed automatically. To show a plot inline after saving:
 
 ```python
 from IPython.display import Image, display
