@@ -58,5 +58,4 @@ Full documentation lives in [`docs/`](docs/index.md):
 - **[RunManifest.txt field reference](docs/manifest_reference.md)**
 
 ---
-Muhammad Shulhan Jihadi. 
-2026. 07. 01.
+##### Muhammad Shulhan Jihadi. 2026. 07. 01.
