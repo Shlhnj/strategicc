@@ -11,6 +11,7 @@ If you're new to the package, work through the guides in order — each builds o
 1. **[Getting Started](guides/01_simple_seea.md)** — a single LULC raster, no simulation, just SEEA-EA valuation of a snapshot
 2. **[Calibration + Simulation](guides/02_calibration_stsm.md)** — derive transition rates from historical data, run a spatial Monte Carlo simulation, value the simulated future
 3. **[Full Pipeline with Stock & Flow](guides/03_stockflow_full.md)** — age-indexed carbon flows, transition-triggered emissions, and dynamic (not static) ecosystem valuation
+4. **[Visualization](guides/04_visualization.md)** — all plots the package produces, output file locations, inline display in Colab, and export resolution
 
 For exact function signatures and parameters once you know what you're looking for, see the **API Reference** below.
 
