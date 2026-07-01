@@ -4,7 +4,7 @@ All notable changes to STRATEGICC are documented here.
 
 **A note on how this file was built:** no `CHANGELOG.md` existed before this
 entry. Versions 1.1 through 3.5.3 were reconstructed retroactively from
-version markers left in module docstrings/inline comments (e.g. `—  v3.2`
+version markers left in module docstrings/inline comments (e.g. `v3.2`
 headers) cross-referenced against the release dates published on
 [PyPI](https://pypi.org/project/strategicc/#history). Where a version bump
 happened without an accompanying docstring change (e.g. 2.2 → 2.2.1), the
@@ -23,14 +23,14 @@ interface is the CSV schema and `SEEAAccount`/`load_ecosystem_services()`/
 
 ---
 
-## [3.6.0] — Unreleased
+## [3.6.0] -- latest
 
 Three related fixes, all stemming from the same root issue: area/CRS
 assumptions baked into pixel-area and valuation math that were only ever
 checked against a single test raster (geographic, `AREA_UNIT="ha"`), and
 silently produced wrong numbers outside that case. None of the three
-affected any previously published output from this project — see each
-entry for why — but all three are live risks for any future run outside
+affected any previously published output from this project, see each
+entry for why, but all three are live risks for any future run outside
 the exact conditions used so far.
 
 ### Fixed
@@ -44,7 +44,7 @@ the exact conditions used so far.
   produced monetary/physical flow accounts off by the unconverted
   factor, with no error raised.
   `SEEAAccount` now accepts `px_area_ha` (the pixel's real-world size in
-  hectares — already computed by the engine) and uses
+  hectares, already computed by the engine) and uses
   `px_area_ha / px_area` to convert area figures back to hectares before
   applying prices. `strategicc/run.py` and all quick-start examples now
   pass it through. Omitting it on a non-`"ha"` run now prints an
@@ -53,11 +53,11 @@ the exact conditions used so far.
 - **Pixel-area calculation assumed every raster was in a geographic
   (degrees) CRS.** `_pixel_area_ha()` unconditionally converted pixel
   scale via a degrees→metres approximation. A raster in a *projected*
-  CRS (e.g. UTM, pixel scale already in metres — common for LULC
+  CRS (e.g. UTM, pixel scale already in metres, common for LULC
   products derived from Landsat/Sentinel) would be silently
   miscalculated by roughly `111,000²`. This project's actual working
   raster happens to be in EPSG:4326 (geographic), so no published
-  result was affected — but the capability gap was real for any
+  result was affected, but the capability gap was real for any
   projected input. `_pixel_area_ha()` now parses `GTModelTypeGeoKey`
   from the GeoTIFF's `GeoKeyDirectoryTag` and branches: projected CRSs
   use pixel scale directly as metres (with a warning if the linear unit
@@ -70,7 +70,7 @@ the exact conditions used so far.
   rasters shared the same CRS.** A mismatched raster would be resampled
   to the target grid (`load_spatial_multipliers()`'s nearest-neighbour
   resize) as if it were spatially aligned, silently corrupting
-  transition targeting and any area-derived accounting — with nothing
+  transition targeting and any area-derived accounting, with nothing
   in the run indicating a problem. `engine.load()` now compares every
   age and spatial-multiplier raster's CRS against the LULC raster's and
   **raises immediately, blocking the run**, on a confirmed mismatch. If
@@ -82,25 +82,25 @@ the exact conditions used so far.
 
 - **`EcosystemServices.csv` columns renamed** `ValuePerHa` →
   `ValuePerUnitArea`, `PhysicalValuePerHa` → `PhysicalValuePerUnitArea`,
-  to make explicit that these are area-based prices — and to avoid
+  to make explicit that these are area-based prices, and to avoid
   confusion with Mode C's physical-unit pricing, which is *not*
   area-denominated. (Briefly named `ValuePerUnit`/`PhysicalValuePerUnit`
   mid-development before this final naming.) `EcosystemService`
   dataclass fields renamed to match: `value_per_ha` →
   `value_per_unit_area`, `physical_per_ha` → `physical_per_unit_area`.
   `load_ecosystem_services()` accepts all historical column names with
-  a one-time warning — existing CSV files do not need to be edited.
+  a one-time warning, existing CSV files do not need to be edited.
 
 - **Breaking (Python-level):** `strategicc.core.age.build_initial_age_from_raster()`
   now returns `(arr, CRSInfo)` instead of just `arr`, to support the CRS
   consistency check above. `strategicc.core.spatial.load_spatial_multipliers()`
   gained a `reference_crs: CRSInfo | None = None` keyword argument
-  (backward compatible — `None` skips the check entirely, matching
+  (backward compatible, `None` skips the check entirely, matching
   pre-3.6 behaviour).
 
 ### Added
 
-- `strategicc.io.raster.CRSInfo` — a lightweight CRS descriptor (model
+- `strategicc.io.raster.CRSInfo`, a lightweight CRS descriptor (model
   type + EPSG code, no GDAL/pyproj dependency) with `.compare()`,
   `.describe()`, and constructors from raw GeoTIFF tags or a rasterio
   CRS object.
@@ -117,25 +117,25 @@ Strictly, the `EcosystemService` field rename (no back-compat alias at
 the Python attribute level) and the `build_initial_age_from_raster()`
 return-type change are breaking changes and would warrant a MAJOR bump
 under strict semver. Released as 3.6.0 (MINOR) on the judgment call that
-the documented public interface — the CSV schema and the
+the documented public interface, the CSV schema and the
 `SEEAAccount`/`load_ecosystem_services()`/`StrategiccEngine` entry
-points — remains backward compatible; only lower-level internals that
+points, remains backward compatible; only lower-level internals that
 aren't part of the documented interface changed shape.
 
 ---
 
-## [3.5.3] — 2026-07-01
-## [3.5.2] — 2026-07-01
+## [3.5.3] -- 2026-07-01
+## [3.5.2] -- 2026-07-01
 ### Added
-- `strategicc/animate.py` (v3.5): standalone two-panel GIF/MP4 animation —
+- `strategicc/animate.py` (v3.5): standalone two-panel GIF/MP4 animation,
   modal LULC map per timestep alongside a synced statistics line chart.
 
-*(No 3.5.0/3.5.1 entries — not published to PyPI, or superseded before a
+*(No 3.5.0/3.5.1 entries, not published to PyPI, or superseded before a
 public release; 3.5.2 is the first 3.5.x version on PyPI.)*
 
 ---
 
-## [3.4.0] — 2026-06-30
+## [3.4.0] -- 2026-06-30
 ### Added
 - `strategicc/calibration` module (v3.4): derive STRATEGICC inputs
   (transition rates, temporal multiplier distributions, age structure)
@@ -146,7 +146,7 @@ public release; 3.5.2 is the first 3.5.x version on PyPI.)*
 
 ---
 
-## [3.3.0] — 2026-06-30
+## [3.3.0] -- 2026-06-30
 ### Changed
 - `EcosystemServices.csv`: `ValuePerHa`/`PhysicalValuePerHa` renamed to
   `ValuePerUnit`/`PhysicalValuePerUnit` (superseded in 3.5.4 — see above).
@@ -156,10 +156,10 @@ public release; 3.5.2 is the first 3.5.x version on PyPI.)*
 
 ---
 
-## [3.2.0] — 2026-06-30
+## [3.2.0] -- 2026-06-30
 ### Added
 - `strategicc/stockflow` module: per-cell, per-timestep Stock & Flow
-  accounting — material quantities moving between pools via Flow
+  accounting, material quantities moving between pools via Flow
   Pathways, either age-driven or transition-triggered.
 - Mode C SEEA-EA valuation: ecosystem services can pull their physical
   quantity directly from Stock & Flow engine output
@@ -169,7 +169,7 @@ public release; 3.5.2 is the first 3.5.x version on PyPI.)*
 
 ---
 
-## [3.1.0] — 2026-06-30
+## [3.1.0] -- 2026-06-30
 ### Added
 - Transition Targets (`strategicc/core/targets.py`): area-based overrides
   that replace or scale a transition group's probability-derived budget
@@ -179,15 +179,15 @@ public release; 3.5.2 is the first 3.5.x version on PyPI.)*
 
 ---
 
-## [3.0.0] — 2026-06-30
+## [3.0.0] -- 2026-06-30
 ### Added
-- `RunManifest.txt` manifest loader (`strategicc/config.py`) — load an
+- `RunManifest.txt` manifest loader (`strategicc/config.py`), load an
   entire run configuration from a single text file instead of setting
   `cfg.*` attributes individually in Python.
 
 ---
 
-## [2.5.0] — 2026-06-30
+## [2.5.0] -- 2026-06-30
 ### Added
 - Multi-iteration support in `StrategiccEngine` (`strategicc/engine.py`).
 - Patch-growing mechanic (`strategicc/core/patches.py`) for transition
@@ -196,22 +196,22 @@ public release; 3.5.2 is the first 3.5.x version on PyPI.)*
 
 ---
 
-## [2.4] — 2026-06-30
+## [2.4] -- 2026-06-30
 ### Added
 - Calibration submodules: `age.py`, `loader.py`, `temporal.py`,
-  `transitions.py` — deriving transition rates and temporal multiplier
+  `transitions.py`, deriving transition rates and temporal multiplier
   distributions from historical LULC data (later consolidated into the
   `strategicc.calibration` package in 3.4).
 
 ---
 
-## [2.2.1] — 2026-06-29
+## [2.2.1] -- 2026-06-29
 No docstring-level markers found for this patch; likely a packaging or
 minor bug-fix release between 2.2.0 and 2.4.
 
 ---
 
-## [2.2.0] — 2026-06-29
+## [2.2.0] -- 2026-06-29
 ### Added
 - Configurable `AREA_UNIT` (`ha` | `km2` | `px`) and `px_area`/`px_area_ha`
   pixel-area tracking in `strategicc/engine.py`.
@@ -220,13 +220,13 @@ minor bug-fix release between 2.2.0 and 2.4.
 - Age tracking (`strategicc/core/age.py`) with `AgeMin`/`AgeMax` gates.
 
 *(This is also the version whose `AREA_UNIT` design the 3.5.4 fix above
-correctly implements for the first time — the configurability existed
+correctly implements for the first time, the configurability existed
 since 2.2.0, but SEEA-EA valuation didn't respect it until now.)*
 
 ---
 
-## [1.1] — undated
+## [1.1] -- undated
 ### Added
-- Stochastic transition multipliers (`strategicc/core/multipliers.py`) —
+- Stochastic transition multipliers (`strategicc/core/multipliers.py`),
   one scalar multiplier per group per timestep, sampled from
   `TransitionMultipliers.csv`.
