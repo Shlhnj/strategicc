@@ -5,6 +5,10 @@
 A Python package implementing spatially explicit State-and-Transition Simulation Models ([Daniel et al. 2016](https://doi.org/10.1111/2041-210X.12597)) integrated with the UN's System of Environmental-Economic Accounting — Ecosystem Accounting ([SEEA-EA](https://seea.un.org/ecosystem-accounting)).
 
 ## Install
+```
+pip install strategicc
+```
+or using github repo:
 
 ```bash
 pip install git+https://github.com/Shlhnj/strategicc.git
@@ -16,7 +20,12 @@ pip install git+https://github.com/Shlhnj/strategicc.git
 import strategicc.config as cfg
 from strategicc import StrategiccEngine, outputs
 from strategicc.accounting import SEEAAccount, save_all_accounts
+```
 
+There are 2 methods of runnign strategicc; either with a manifest file or using a direct python command.
+See the docs for more info.
+
+```
 # Load everything from a single manifest file
 cfg.load_manifest("RunManifest.txt")
 
