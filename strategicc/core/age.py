@@ -24,13 +24,14 @@ from __future__ import annotations
 import numpy as np
 from scipy import stats as scipy_stats
 from strategicc.io.csv_loader import InitialAgeRule
+from strategicc.io.raster import get_crs_info, CRSInfo
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Build initial age map
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_initial_age_from_raster(path: str) -> tuple[np.ndarray, "CRSInfo"]:
+def build_initial_age_from_raster(path: str) -> tuple[np.ndarray, CRSInfo]:
     """
     Load age raster from a GeoTIFF.
 
@@ -53,7 +54,6 @@ def build_initial_age_from_raster(path: str) -> tuple[np.ndarray, "CRSInfo"]:
                        silently corrupts area-derived accounting.
     """
     from PIL import Image
-    from strategicc.io.raster import get_crs_info, CRSInfo
     try:
         img = Image.open(str(path))
         arr = np.array(img, dtype=np.uint16)
