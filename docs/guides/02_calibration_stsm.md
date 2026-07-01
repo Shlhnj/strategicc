@@ -77,15 +77,15 @@ engine = StrategiccEngine(
     spatial_mult_csv       = "inputs/TransitionSpatialMultipliers.csv",
     trans_mult_csv         = "inputs/TransitionMultipliers.csv",
     ecosystem_services_csv = "inputs/EcosystemServices.csv",
-    mult_dir                = "spatmult_uploads/",
-    out_dir                  = "output/",
-    start_year   = 2022,
-    n_timesteps  = 10,
-    n_iterations = 20,
-    use_adjacency        = True,
-    use_spatial_mult      = True,    # turns the spatial driver on
+    mult_dir               = "spatmult_uploads/",
+    out_dir                = "output/",
+    start_year             = 2022,
+    n_timesteps            = 10,
+    n_iterations           = 20,
+    use_adjacency          = True,
+    use_spatial_mult       = True,    # turns the spatial driver on
     use_trans_multiplier   = True,
-    use_seea                 = True,
+    use_seea               = True,
 )
 engine.load()
 engine.diagnostic()   # prints expected transitions before running, useful sanity check
@@ -141,7 +141,7 @@ print(f"2032: {total_by_year.loc[2032]:,.0f} IDR")
 
 ## A note on modal aggregation and visible change
 
-If your transition probabilities are low relative to the number of iterations and timesteps, the modal class per cell may not flip even though individual iterations show real transitions — this is statistically correct (no cell converts in a majority of iterations), not a bug. If your projected value change looks flat, check the raw `area_df` envelope plot first; if individual iterations show clear trends but the modal map doesn't, you likely need a stronger calibrated signal, more timesteps, or fewer iterations relative to your landscape size.
+If your transition probabilities are low relative to the number of iterations and timesteps, the modal class per cell may not flip even though individual iterations show real transitions - this is statistically correct (no cell converts in a majority of iterations), not a bug. If your projected value change looks flat, check the raw `area_df` envelope plot first; if individual iterations show clear trends but the modal map doesn't, you likely need a stronger calibrated signal, more timesteps, or fewer iterations relative to your landscape size.
 
 ## What this doesn't cover
 
