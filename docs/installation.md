@@ -1,7 +1,11 @@
 # Installation
 
-## From GitHub
+## Using Pip
+```
+pip install strategicc
+```
 
+## From GitHub
 ```bash
 pip install git+https://github.com/Shlhnj/strategicc.git
 ```
@@ -13,7 +17,7 @@ This installs the core package with its required dependencies:
 - `Pillow>=10.0`
 - `matplotlib>=3.7`
 
-These four cover the simulation engine, SEEA-EA accounting, Stock & Flow, and all plotting — everything except the calibration module and MP4 animation export.
+These four cover the simulation engine, SEEA-EA accounting, Stock & Flow, and all plotting, everything except the calibration module and MP4 animation export.
 
 ## Optional dependencies
 
@@ -57,7 +61,9 @@ Installs `pytest` and `pytest-cov` for running the test suite.
 Colab already has `numpy`, `pandas`, `matplotlib`, `Pillow`, and `ffmpeg` preinstalled. You only need:
 
 ```python
-!pip install git+https://github.com/Shlhnj/strategicc.git --quiet
+!pip install strategicc
+#or
+#!pip install git+https://github.com/Shlhnj/strategicc.git --quiet
 !pip install rasterio --quiet   # only if using the calibration module
 ```
 
