@@ -1,4 +1,4 @@
-# Guide 4 — Visualization
+# Guide 4: Visualization
 
 STRATEGICC produces all plots as PNG files saved directly to disk, no interactive window is shown, so they work correctly in Colab and headless environments. This guide covers every plot the package generates, where to find the output files, and how to display them inline in a notebook.
 
@@ -130,7 +130,7 @@ display(Image(str(seea_dir / "seea_monetary_flows.png")))
 
 ## Changing export resolution
 
-All plots are saved at 150 DPI by default. To change this, edit the `dpi=150` argument in `fig.savefig(...)` directly in:
+All plots are saved at 300 DPI by default. To change this, edit the `dpi=300` argument in `fig.savefig(...)` directly in:
 
 - `strategicc/outputs.py` — 5 occurrences (simulation plots)
 - `strategicc/accounting/outputs.py` — 3 occurrences (SEEA-EA plots)
@@ -139,4 +139,4 @@ All plots are saved at 150 DPI by default. To change this, edit the `dpi=150` ar
 
 ## Animation
 
-For an animated view of the landscape changing over time (combined LULC map + valuation statistics), see the [`animate` reference](../reference/animate.md). The animation reads from the same `lulc_mean_{year}.tif` files that `plot_spatial_summary()` uses — so `outputs.aggregate_spatial()` must be run first.
+For an animated view of the landscape changing over time (combined LULC map + valuation statistics), see the [`animate` reference](../reference/animate.md). The animation reads from the same `lulc_mean_{year}.tif` files that `plot_spatial_summary()` uses, so `outputs.aggregate_spatial()` must be run first.
