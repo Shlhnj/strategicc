@@ -1,19 +1,21 @@
 # STRATEGICC Documentation
 
-**STRATEGICC** — State and Transition Integrated Economic-Environmental Accounting — is a Python package implementing State-and-Transition Simulation Models (STSM, [Daniel et al. 2016](https://doi.org/10.1111/2041-210X.12597)) integrated with the UN's System of Environmental-Economic Accounting — Ecosystem Accounting ([SEEA-EA](https://seea.un.org/ecosystem-accounting)).
+**STRATEGICC**: State and Transition Integrated Economic-Environmental Accounting — 
 
-It simulates how a landscape's land cover changes over time under stochastic, spatially explicit transition probabilities, then translates that simulated future into ecosystem service value — including full carbon Stock & Flow accounting.
+Python package implementing State-and-Transition Simulation Models (STSM, [Daniel et al. 2016](https://doi.org/10.1111/2041-210X.12597)) integrated with the UN's System of Environmental-Economic Accounting - Ecosystem Accounting ([SEEA-EA](https://seea.un.org/ecosystem-accounting)).
+
+The package can simulates how a landscape's land cover changes over time under stochastic, spatially explicit transition probabilities, then translates that simulated future into ecosystem service value — including full carbon Stock & Flow accounting.
 
 ## Where to start
 
-If you're new to the package, work through the guides in order — each builds on the previous one's concepts:
+To understand the package, user must have familiarity with STSM workflow concept, then work through the guides in order which each examples builds on the previous one's concepts:
 
 1. **[Getting Started](guides/01_simple_seea.md)** — a single LULC raster, no simulation, just SEEA-EA valuation of a snapshot
 2. **[Calibration + Simulation](guides/02_calibration_stsm.md)** — derive transition rates from historical data, run a spatial Monte Carlo simulation, value the simulated future
 3. **[Full Pipeline with Stock & Flow](guides/03_stockflow_full.md)** — age-indexed carbon flows, transition-triggered emissions, and dynamic (not static) ecosystem valuation
 4. **[Visualization](guides/04_visualization.md)** — all plots the package produces, output file locations, inline display in Colab, and export resolution
 
-For exact function signatures and parameters once you know what you're looking for, see the **API Reference** below.
+For exact function signatures and parameters, see the **API Reference** below.
 
 ## Installation
 
