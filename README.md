@@ -50,9 +50,9 @@ save_all_accounts(acct, engine.out_dir / "seea")
 
 Full documentation lives in [`docs/`](docs/index.md):
 - **[Installation](docs/installation.md)**
-- **[Guide 1 — Simple SEEA-EA from a single raster](docs/guides/01_simple_seea.md)**
-- **[Guide 2 — Calibration + Simulation + SEEA-EA](docs/guides/02_calibration_stsm.md)**
-- **[Guide 3 — Full pipeline with Stock & Flow](docs/guides/03_stockflow_full.md)**
+- **[Guide 1: Simple SEEA-EA from a single raster](docs/guides/01_simple_seea.md)**
+- **[Guide 2: Calibration + Simulation + SEEA-EA](docs/guides/02_calibration_stsm.md)**
+- **[Guide 3: Full pipeline with Stock & Flow](docs/guides/03_stockflow_full.md)**
 - **[API Reference](docs/index.md#api-reference)**
 - **[RunManifest.txt field reference](docs/manifest_reference.md)**
 
