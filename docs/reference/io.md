@@ -19,7 +19,7 @@ from strategicc.io import (
 | `get_pixel_area(px_area_ha, unit)` | Convert hectares to the configured `AREA_UNIT` (`"ha"`, `"km2"`, or `"px"`) |
 | `resolve_mult_dir(mult_dir)` | If `mult_dir` is a `.zip`, auto-extract once to a sibling folder and return that folder's path; if it's already a folder, return unchanged |
 
-`read_lulc()` requires real GeoTIFF georeferencing tags (ModelPixelScaleTag, ModelTiepointTag) — a plain `PIL.Image.save()` without those tags will fail to read back. Use `rasterio` to write synthetic test rasters if you need them (see any of the worked examples for the pattern).
+`read_lulc()` requires real GeoTIFF georeferencing tags (ModelPixelScaleTag, ModelTiepointTag), a plain `PIL.Image.save()` without those tags will fail to read back. Use `rasterio` to write synthetic test rasters if you need them (see any of the worked examples for the pattern).
 
 ## CSV loaders (`io/csv_loader.py`)
 
