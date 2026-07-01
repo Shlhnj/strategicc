@@ -133,7 +133,7 @@ def plot_monetary_flows(
 
     plt.tight_layout()
     out_path = out_dir / filename
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {out_path}")
 
@@ -192,7 +192,7 @@ def plot_value_by_service(
 
     plt.tight_layout()
     out_path = out_dir / filename
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {out_path}")
 
@@ -255,6 +255,6 @@ def plot_transition_heatmap(
     plt.suptitle("Ecosystem Transition Matrix", fontsize=12, y=1.01)
     plt.tight_layout()
     out_path = out_dir / filename
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {out_path}")
