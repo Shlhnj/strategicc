@@ -19,7 +19,7 @@ from strategicc.accounting import (
 | B | + `PhysicalUnit`, `PhysicalValuePerHa` | Adds a static physical flow account alongside Mode A's monetary one |
 | C | + `StockFlowSource` (`"flow:<Type>"` or `"stock:<Type>"`) | Physical quantity comes from the actual simulated Stock & Flow output; `ValuePerHa` is reinterpreted as price per physical unit |
 
-Modes can be mixed freely within the same file — different rows (even for the same class) can use different modes. See [Guide 3](../guides/03_stockflow_full.md) for Mode C in detail, including the distinction between `flow:` (an annual service rate) and `stock:` (a standing asset value).
+Modes can be mixed freely within the same file, different rows (even for the same class) can use different modes. See [Guide 3](../guides/03_stockflow_full.md) for Mode C in detail, including the distinction between `flow:` (an annual service rate) and `stock:` (a standing asset value).
 
 ## `SEEAAccount`
 
@@ -36,7 +36,7 @@ acct = SEEAAccount(
 )
 ```
 
-`area_modal_df` (derived from the modal map across iterations) is what every account is actually computed from, ensuring the spatial output and the tabular accounts stay consistent with each other. `area_df` (raw, per-iteration) is used only for `uncertainty_summary()` — it never feeds the other accounts.
+`area_modal_df` (derived from the modal map across iterations) is what every account is actually computed from, ensuring the spatial output and the tabular accounts stay consistent with each other. `area_df` (raw, per-iteration) is used only for `uncertainty_summary()`, it never feeds the other accounts.
 
 ### Methods
 
@@ -46,7 +46,7 @@ acct = SEEAAccount(
 | `transition_matrix()` | Median area converted from each class to each class, summed across all timesteps |
 | `value_change_matrix()` | Monetary value change implied by `transition_matrix()` |
 | `physical_flow_account()` | Total physical units supplied per service per year (Mode B/C only; `None` if no service has a physical unit) |
-| `monetary_flow_account()` | Total monetary value per service per year — the most commonly used output |
+| `monetary_flow_account()` | Total monetary value per service per year, the most commonly used output |
 | `total_value_by_class()` | Total value per class per year (sum across all that class's services) |
 | `change_in_value()` | Year-on-year change in total value, per class and overall |
 | `uncertainty_summary()` | Median/min/max value range across iterations, reported once (not per-account) |
