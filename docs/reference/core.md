@@ -1,6 +1,6 @@
 # `strategicc.core`
 
-The transition-firing mechanics used internally by `StrategiccEngine` each timestep. Most users interact with these only indirectly through `StrategiccEngine`'s toggles — this page is for understanding how a toggle changes behaviour, or for building a custom engine on top of the same primitives.
+The transition-firing mechanics used internally by `StrategiccEngine` each timestep. Most users interact with these only indirectly through `StrategiccEngine`'s toggles, this page is for understanding how a toggle changes behaviour, or for building a custom engine on top of the same primitives.
 
 ```python
 from strategicc.core import (
@@ -11,13 +11,13 @@ from strategicc.core import (
 
 ## Transitions (`core/transitions.py`)
 
-`build_transition_index()` converts a flat list of `TransitionRule` (from `Transitions.csv`) into a per-source-class lookup dict the engine iterates over each timestep — `{from_id: [(to_id, base_probability, group), ...]}`.
+`build_transition_index()` converts a flat list of `TransitionRule` (from `Transitions.csv`) into a per-source-class lookup dict the engine iterates over each timestep, `{from_id: [(to_id, base_probability, group), ...]}`.
 
 `TransitionRecord` is the dataclass logged every time a transition actually fires on a cell: `year`, `row`, `col`, `from_id`, `to_id`, `group`.
 
 ## Adjacency (`core/adjacency.py`)
 
-`compute_neighbor_fractions(lulc_map, n_classes)` computes, for every cell, what fraction of its 8 neighbours belong to each class — frozen at the start of each timestep before any transitions fire that step. This is the basis for `use_adjacency`: groups in `STRICT_EXPANSION_GROUPS` require at least one neighbour of the target class to fire at all; other groups get a baseline-1.0 boost proportional to neighbour fraction.
+`compute_neighbor_fractions(lulc_map, n_classes)` computes, for every cell, what fraction of its 8 neighbours belong to each class, frozen at the start of each timestep before any transitions fire that step. This is the basis for `use_adjacency`: groups in `STRICT_EXPANSION_GROUPS` require at least one neighbour of the target class to fire at all; other groups get a baseline-1.0 boost proportional to neighbour fraction.
 
 ## Age (`core/age.py`)
 
@@ -28,21 +28,21 @@ from strategicc.core import (
 | `update_age(age_map, fired, reset_mask, relative_values)` | Increment age by 1 for non-transitioned cells; reset to 0 or a specified value for transitioned cells, per the `AgeReset`/`AgeRelative` columns in `Transitions.csv` |
 | `age_gate_mask(age_map, age_min, age_max)` | Boolean mask of cells whose age satisfies a transition's `AgeMin`/`AgeMax` gate |
 
-This module is what makes `use_age=True` meaningful — without it, transitions can't be age-gated and Stock & Flow's age-indexed NPP lookup has no age to index against.
+This module is what makes `use_age=True` meaningful, without it, transitions can't be age-gated and Stock & Flow's age-indexed NPP lookup has no age to index against.
 
 ## Patches (`core/patches.py`)
 
-The mechanic behind groups listed in `TransitionSizeDistribution.csv` — instead of independent-cell firing, transitions cluster into discrete spatial events matching a historical size distribution.
+The mechanic behind groups listed in `TransitionSizeDistribution.csv`, instead of independent-cell firing, transitions cluster into discrete spatial events matching a historical size distribution.
 
 ```python
 fired = grow_patches_for_group(p_eff, eligible, size_bins, px_area_ha, rng)
 ```
 
-`grow_patches_for_group()` repeatedly seeds a patch (weighted by `p_eff`, which already encodes adjacency + spatial suitability) and grows it via 8-connected BFS until either the sampled patch size is reached or the budget (`sum(p_eff)` over eligible cells, matching what independent-cell firing would have produced in expectation) is exhausted. An optional `budget_override` parameter lets Transition Targets replace that budget with an explicit area target.
+`grow_patches_for_group()` repeatedly seeds a patch (weighted by `p_eff`, which already encodes adjacency + spatial suitability) and grows it via 8-connected Breadth-First Search (BFS) until either the sampled patch size is reached or the budget (`sum(p_eff)` over eligible cells, matching what independent-cell firing would have produced in expectation) is exhausted. An optional `budget_override` parameter lets Transition Targets replace that budget with an explicit area target.
 
 ## Targets (`core/targets.py`)
 
-The mechanic behind `TransitionTargets.csv` — area-based overrides that replace or scale a group's normal probability-derived budget for a timestep, matching ST-Sim's official target-normalization algorithm.
+The mechanic behind `TransitionTargets.csv`, area-based overrides that replace or scale a group's normal probability-derived budget for a timestep, matching ST-Sim's official target-normalization algorithm.
 
 | Function | Purpose |
 |---|---|
@@ -52,7 +52,7 @@ The mechanic behind `TransitionTargets.csv` — area-based overrides that replac
 
 ## Multipliers (`core/multipliers.py`)
 
-`sample_transition_multipliers(rules, rng)` draws one stochastic scalar per transition group per timestep from a `Uniform(min, max)` distribution defined in `TransitionMultipliers.csv` — this is what `use_trans_multiplier` controls.
+`sample_transition_multipliers(rules, rng)` draws one stochastic scalar per transition group per timestep from a `Uniform(min, max)` distribution defined in `TransitionMultipliers.csv`, this is what `use_trans_multiplier` controls.
 
 ## How it all combines
 
