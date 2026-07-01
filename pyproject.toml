@@ -11,7 +11,8 @@ license = { file = "LICENSE" }
 authors = [{ name = "Shlhnj" }]
 keywords = [
     "STSM", "land cover", "ecosystem accounting",
-    "SEEA-EA", "landscape ecology", "Monte Carlo",
+    "SEEA-EA", "landscape ecology", "ecological modelling",
+    "ecological forecasting"
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
