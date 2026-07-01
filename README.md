@@ -57,11 +57,4 @@ Full documentation lives in [`docs/`](docs/index.md):
 - **[API Reference](docs/index.md#api-reference)**
 - **[RunManifest.txt field reference](docs/manifest_reference.md)**
 
-## Testing
-
-```bash
-pip install -e ".[dev]"
-pytest tests/
-```
-
-162 tests, all passing.
+Muhammmad Shulhan Jihadi. 2026. 07. 01.
