@@ -163,7 +163,7 @@ def plot_area_envelope(
     plt.tight_layout()
 
     out_path = out_dir / filename
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  Area envelope plot saved to: {out_path}")
 
@@ -253,7 +253,7 @@ def plot_transition_envelope(
 
     plt.tight_layout()
     out_path = out_dir / filename
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  Transition envelope plot saved to: {out_path}")
 
@@ -291,7 +291,7 @@ def plot_lulc_maps(
     )
     plt.tight_layout()
     out_path = out_dir / filename
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  LULC maps saved to: {out_path}")
 
@@ -324,7 +324,7 @@ def plot_transition_maps(
 
     plt.tight_layout()
     out_path = out_dir / filename
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  Transition maps saved to: {out_path}")
 
@@ -541,7 +541,7 @@ def plot_spatial_summary(
     plt.tight_layout()
 
     out_path = spatial_dir / filename
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  Spatial summary plot saved to: {out_path}")
 
