@@ -1,12 +1,12 @@
-# Guide 1 — Getting Started: SEEA-EA from a Single LULC Raster
+# Guide 1: Getting Started: SEEA-EA from a Single LULC Raster
 
 **Complexity:** Beginner
 
 **Full script:** `strategicc_examples/example1_simple_seea.py`
 
-This is the simplest possible use of STRATEGICC — no simulation at all. You have one land cover raster (e.g. this year's classified satellite image) and want to know what the landscape is worth, broken down by ecosystem service.
+This is the simplest possible use of STRATEGICC that uses no simulation at all. In this case, the user have one land cover raster (e.g. this year's classified satellite image) and want to know what the landscape is worth, broken down by ecosystem service.
 
-Use this to do a quick analysis about **snapshot valuation** of a landscape. No timeseries. No modelling. 
+Use this to do a quick analysis about **snapshot valuation** of a landscape. No timeseries analysis or modelling. 
 
 ## What you need
 
@@ -14,7 +14,7 @@ Use this to do a quick analysis about **snapshot valuation** of a landscape. No 
 - A `StateClasses.csv` defining your classes
 - An `EcosystemServices.csv` defining economic value per class per hectare
 
-## Step 1 — Define your classes
+## Step 1 Define your classes
 User can define their land cover class using csv file or directly in python.
 
 ```python
@@ -27,9 +27,9 @@ Cropland:All,Cropland,All,4,"255,255,255,0",,,No
 ''')
 ```
 
-## Step 2 — Define ecosystem service values
+## Step 2 Define ecosystem service values
 
-This is Mode A/B valuation — a static value per hectare, not derived from any simulation:
+This is Mode A/B valuation; a static value per hectare, not derived from any simulation:
 User can define their land cover class monetary value or service value of each land cover value using csv file or directly in python.
 
 ```python
@@ -45,9 +45,9 @@ Cropland,Crop Provisioning,Provisioning,30000000,IDR,kg/ha,5000
 
 `ValuePerHa` is the price per hectare per year. If user also know the physical quantity supplied (e.g. carbon sequestered), set `PhysicalUnit` and `PhysicalValuePerHa` too — this produces a physical flow account alongside the monetary one.
 
-## Step 3 — Compute extent + valuation directly
+## Step 3 Compute extent + valuation directly
 
-There's no `StrategiccEngine` here since there's no simulation — you build the area table by hand from the raster, then hand it straight to `SEEAAccount`:
+There's no `StrategiccEngine` here since there's no simulation, the example just build the area table by hand from the raster, then feed it straight to `SEEAAccount`:
 
 ```python
 from strategicc.io import load_state_classes, read_lulc
@@ -73,9 +73,9 @@ acct = SEEAAccount(
 )
 ```
 
-`trans_df` is empty here because `SEEAAccount` was designed around the full simulation pipeline — `trans_df` normally feeds the transition matrix account, which doesn't apply to a single static map.
+`trans_df` is empty here because `SEEAAccount` was designed around the full simulation pipeline, `trans_df` normally feeds the transition matrix account, which doesn't apply to a single static map.
 
-## Step 4 — Read the results
+## Step 4 Read the results
 
 ```python
 monetary = acct.monetary_flow_account()
@@ -87,4 +87,4 @@ print(f"Total landscape value: {total_value:,.0f} IDR")
 
 ## What this doesn't cover
 
-This guide intentionally skips the simulation engine, calibration, spatial multipliers, age tracking, and Stock & Flow — it's a pure accounting exercise on one map. If you want to project how the landscape might change and value that projected future, continue to [Guide 2](02_calibration_stsm.md).
+This guide intentionally skips the simulation engine, calibration, spatial multipliers, age tracking, and Stock & Flow, this is a pure accounting exercise on one map. If you want to project how the landscape might change and value that projected future, continue to [Guide 2](02_calibration_stsm.md).
