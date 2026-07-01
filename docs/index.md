@@ -1,6 +1,6 @@
 # STRATEGICC Documentation
 
-**STRATEGICC**: State and Transition Integrated Economic-Environmental Accounting — 
+**STRATEGICC**: State and Transition Integrated Economic-Environmental Accounting
 
 Python package implementing State-and-Transition Simulation Models (STSM, [Daniel et al. 2016](https://doi.org/10.1111/2041-210X.12597)) integrated with the UN's System of Environmental-Economic Accounting - Ecosystem Accounting ([SEEA-EA](https://seea.un.org/ecosystem-accounting)).
 
