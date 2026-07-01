@@ -1,4 +1,4 @@
-# `strategicc.engine` — `StrategiccEngine`
+# `strategicc.engine` & `StrategiccEngine`
 
 The core simulation class. Loads inputs, runs N stochastic Monte Carlo iterations of the spatial state-and-transition simulation, and writes per-iteration outputs (LULC rasters, transition logs, age rasters, stock/flow rasters) to disk.
 
@@ -8,9 +8,9 @@ from strategicc import StrategiccEngine
 
 ## Constructing an engine
 
-Two ways to build an engine — pick one:
+Two ways to build an engine, pick one:
 
-**From `strategicc.config`** (recommended; reads all settings from the config module, which you can populate via `config.load_manifest()` or by setting attributes directly):
+**From `strategicc.config`** (recommended; reads all settings from the config module, which user can populate via `config.load_manifest()` or by setting attributes directly):
 
 ```python
 engine = StrategiccEngine.from_config()
@@ -26,22 +26,22 @@ engine = StrategiccEngine(
     spatial_mult_csv       = "inputs/TransitionSpatialMultipliers.csv",
     trans_mult_csv         = "inputs/TransitionMultipliers.csv",
     ecosystem_services_csv = "inputs/EcosystemServices.csv",
-    mult_dir                = "spatmult_uploads/",
-    out_dir                  = "output/",
-    start_year   = 2022,
-    n_timesteps  = 10,
-    n_iterations = 20,
-    rng_seed     = 42,
-    use_adjacency        = True,
-    use_spatial_mult      = True,
+    mult_dir               = "spatmult_uploads/",
+    out_dir                = "output/",
+    start_year             = 2022,
+    n_timesteps            = 10,
+    n_iterations           = 20,
+    rng_seed               = 42,
+    use_adjacency          = True,
+    use_spatial_mult       = True,
     use_trans_multiplier   = True,
-    use_seea                = True,
-    use_age                  = False,
-    use_stockflow              = False,
+    use_seea               = True,
+    use_age                = False,
+    use_stockflow          = False,
 )
 ```
 
-Most parameters have sensible defaults — only `lulc_path`, `state_classes_csv`, `transitions_csv`, and `out_dir` are strictly required to get something running. CSVs that don't exist on disk are silently skipped with a printed note (e.g. no `TransitionSizeDistribution.csv` -> all groups use independent-cell firing instead of patch growth).
+Most parameters have sensible defaults, only `lulc_path`, `state_classes_csv`, `transitions_csv`, and `out_dir` are strictly required to get something running. CSVs that don't exist on disk are silently skipped with a printed note (e.g. no `TransitionSizeDistribution.csv` -> all groups use independent-cell firing instead of patch growth).
 
 ## The three-step lifecycle
 
@@ -51,21 +51,21 @@ engine.diagnostic()   # optional but recommended -- prints expected transitions 
 engine.run()          # run all n_iterations, write outputs to out_dir
 ```
 
-`load()` must be called before `run()`. `diagnostic()` is optional but catches misconfigurations early — it prints, for every transition pathway, the number of source cells and the expected number of fires given the current probability and multipliers, before committing to a potentially slow Monte Carlo run.
+`load()` must be called before `run()`. `diagnostic()` is optional but catches misconfigurations early, it prints, for every transition pathway, the number of source cells and the expected number of fires given the current probability and multipliers, before committing to a potentially slow Monte Carlo run.
 
 ## What `run()` produces
 
 For each iteration `i`, a subfolder `{out_dir}/iter_{i:03d}/` containing:
 
-- `lulc_{year}.tif` — one LULC raster per timestep
-- `transition_log.csv` — every fired transition (year, row, col, from/to class, group)
-- `area_table.csv` — area per class per timestep
-- `age/age_{year}.tif` — if `use_age=True` and `save_age_rasters=True`
-- `stocks/{stock_type}/stock_{year}.tif` — if `use_stockflow=True` and `cfg.SAVE_STOCK_RASTERS=True`
-- `flow_log.csv` / `flow_log_by_class.csv` — if `use_stockflow=True`
-- `transition_events/events_{year}.tif` — if `RASTER_OUTPUT_TRANSITION_EVENTS` is enabled
+- `lulc_{year}.tif` --> one LULC raster per timestep
+- `transition_log.csv` --> every fired transition (year, row, col, from/to class, group)
+- `area_table.csv` --> area per class per timestep
+- `age/age_{year}.tif` --> if `use_age=True` and `save_age_rasters=True`
+- `stocks/{stock_type}/stock_{year}.tif` --> if `use_stockflow=True` and `cfg.SAVE_STOCK_RASTERS=True`
+- `flow_log.csv` / `flow_log_by_class.csv` --> if `use_stockflow=True`
+- `transition_events/events_{year}.tif`--> if `RASTER_OUTPUT_TRANSITION_EVENTS` is enabled
 
-`engine.iter_dirs` is a list of `Path` objects pointing at each iteration's output folder — pass this directly to `strategicc.outputs.aggregate_spatial()` and similar aggregation functions.
+`engine.iter_dirs` is a list of `Path` objects pointing at each iteration's output folder,  pass this directly to `strategicc.outputs.aggregate_spatial()` and similar aggregation functions.
 
 ## Key attributes after `load()`
 
