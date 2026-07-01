@@ -1,6 +1,6 @@
 # `strategicc.config`
 
-Runtime configuration for everything in the package — file paths, run control, feature toggles, and tuning constants. There is no `Config` class; `config` is a plain module whose attributes are read by `StrategiccEngine.from_config()` and other parts of the package.
+Runtime configuration for everything in the package, file paths, run control, feature toggles, and tuning constants. There is no `Config` class; `config` is a plain module whose attributes are read by `StrategiccEngine.from_config()` and other parts of the package.
 
 ```python
 import strategicc.config as cfg
@@ -8,7 +8,7 @@ import strategicc.config as cfg
 
 ## Two configuration modes
 
-**Direct mode** — set attributes on the module:
+**Direct mode**: set attributes on the module:
 
 ```python
 import strategicc.config as cfg
@@ -20,13 +20,13 @@ cfg.N_ITERATIONS    = 50
 cfg.USE_AGE         = True
 ```
 
-**Manifest mode** — load every setting at once from a single `RunManifest.txt` file:
+**Manifest mode**: load every setting at once from a single `RunManifest.txt` file:
 
 ```python
 cfg.load_manifest("RunManifest.txt")
 ```
 
-These two modes are mutually exclusive within the same session. Once `load_manifest()` has been called, any subsequent direct `cfg.X = value` assignment raises `ManifestModeError` — this is enforced at the module level, not just documented as a convention. Call `cfg.reset_manifest_mode()` to lift the restriction if you want to switch modes (e.g. running one scenario via manifest, then a second via direct assignment, in the same notebook session):
+These two modes are mutually exclusive within the same session. Once `load_manifest()` has been called, any subsequent direct `cfg.X = value` assignment raises `ManifestModeError`, this is enforced at the module level, not just documented as a convention. Call `cfg.reset_manifest_mode()` to lift the restriction if you want to switch modes (e.g. running one scenario via manifest, then a second via direct assignment, in the same notebook session):
 
 ```python
 cfg.load_manifest("RunManifest.txt")
@@ -51,7 +51,7 @@ See [manifest_reference.md](../manifest_reference.md) for the complete field-by-
 | Output gating | `SUMMARY_OUTPUT_SC`, `SUMMARY_OUTPUT_TR`, `RASTER_OUTPUT_SC`, `RASTER_OUTPUT_AGE`, `RASTER_OUTPUT_TRANSITION_EVENTS` (and their `*_TIMESTEPS` stride controls) |
 | LULC zip fetch | `FETCH_INITIAL_SC_FROM_ZIP`, `LULC_ZIP_PATH`, `INITIAL_SC_YEAR` |
 
-Note: Stock & Flow CSV paths are always configured via `strategicc.config`, not as `StrategiccEngine` constructor arguments — see [Guide 3](../guides/03_stockflow_full.md) for why and how.
+Note: Stock & Flow CSV paths are always configured via `strategicc.config`, not as `StrategiccEngine` constructor arguments, see [Guide 3](../guides/03_stockflow_full.md) for why and how.
 
 ## Reading the current configuration
 
