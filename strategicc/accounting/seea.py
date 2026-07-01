@@ -1,7 +1,17 @@
 """
-strategicc/accounting/seea.py  —  SEEA-EA accounting engine  v3.2
+strategicc/accounting/seea.py  —  SEEA-EA accounting engine  v3.3
 ------------------------------------------------------------------
 Produces all ecosystem accounts from simulation outputs.
+
+v3.3 changes
+------------
+* EcosystemServices.csv columns renamed ValuePerHa/PhysicalValuePerHa ->
+  ValuePerUnitArea/PhysicalValuePerUnitArea (old names still accepted). These
+  prices are always hectare-denominated. Fixed a unit-consistency bug:
+  when AREA_UNIT != "ha", area_modal_df/area_df are expressed in km2 or
+  raw pixel counts, but valuation was multiplying hectare-based prices
+  by those figures directly with no conversion. SEEAAccount now accepts
+  px_area_ha and converts area back to hectares before pricing.
 
 v3.2 changes
 ------------
@@ -9,7 +19,7 @@ v3.2 changes
   strategicc.stockflow.aggregation) enable Mode C valuation: services
   whose EcosystemServices.csv row sets StockFlowSource pull their
   physical quantity directly from the Stock & Flow engine's per-class
-  totals instead of a static PhysicalValuePerHa, with ValuePerHa then
+  totals instead of a static PhysicalValuePerUnitArea, with ValuePerUnitArea then
   acting as a price PER PHYSICAL UNIT rather than per area.
 
 Accounts produced
@@ -53,13 +63,15 @@ def _unit_label(col: str) -> str:
 
 class SEEAAccount:
     """
-    SEEA-EA ecosystem accounting engine  v3.2
+    SEEA-EA ecosystem accounting engine  v3.3
 
     Parameters
     ----------
     area_modal_df : area table derived from modal LULC maps — used for all
                     area-based accounts. Schema: year, class_id, class_name,
                     area_{unit}. Produced by outputs.modal_to_area_table().
+                    area_{unit} is expressed in whatever AREA_UNIT the run
+                    used (ha | km2 | px) — see px_area_ha below.
 
     area_df       : raw per-iteration area table — used ONLY for the
                     uncertainty summary. Schema adds an 'iteration' column.
@@ -68,12 +80,26 @@ class SEEAAccount:
     trans_df      : concatenated transition_log.csv across all iterations.
                     Used for transition matrix (median counts across iters).
 
-    services      : list of EcosystemService from EcosystemServices.csv
+    services      : list of EcosystemService from EcosystemServices.csv.
+                    ValuePerUnitArea / PhysicalValuePerUnitArea are always
+                    hectare-denominated (see accounting/csv_loader.py).
 
     classes       : dict[int, StateClass]
 
-    px_area       : pixel area in the chosen unit (engine.px_area).
-                    Used for transition matrix area calculation.
+    px_area       : pixel area in the run's chosen AREA_UNIT (engine.px_area).
+                    Used for transition matrix area calculation and for
+                    unit detection on area_modal_df.
+
+    px_area_ha    : (v3.3) pixel area in hectares (engine.px_area_ha).
+                    Required to correctly value area-based ecosystem
+                    services (Mode A/B) when AREA_UNIT != "ha" — used to
+                    convert area figures in area_modal_df/area_df (which
+                    are in the run's AREA_UNIT) back to hectares before
+                    applying ValuePerUnitArea/PhysicalValuePerUnitArea. If omitted,
+                    a factor of 1.0 is assumed (i.e. area is treated as
+                    already being in hectares) — a warning is printed if
+                    the detected area unit isn't "ha" in that case, since
+                    valuation would then be silently wrong.
 
     stock_df      : (v3.2) DataFrame from
                     stockflow.aggregation.aggregate_stock_by_class().
@@ -93,6 +119,7 @@ class SEEAAccount:
         services:      list[EcosystemService],
         classes:       dict[int, StateClass],
         px_area:       float,
+        px_area_ha:    float | None = None,   # v3.3
         area_df:       pd.DataFrame | None = None,
         stock_df:      pd.DataFrame | None = None,   # v3.2
         flow_df:       pd.DataFrame | None = None,   # v3.2
@@ -109,6 +136,25 @@ class SEEAAccount:
         # Detect area column and unit label from modal df
         self._acol       = _area_col(area_modal_df)
         self._unit_label = _unit_label(self._acol)
+
+        # v3.3 — conversion factor from area_modal_df's unit back to hectares.
+        # area_ha = area_in_chosen_unit * self._ha_per_unit
+        if px_area_ha is None:
+            self._ha_per_unit = 1.0
+            has_valuable_services = any(
+                s.value_per_unit_area or s.physical_per_unit_area for s in services
+            )
+            if has_valuable_services and self._acol != "area_ha":
+                print(
+                    f"  [Warning] SEEAAccount received no px_area_ha and "
+                    f"area_modal_df is in '{self._unit_label}', not hectares. "
+                    f"ValuePerUnitArea/PhysicalValuePerUnitArea are hectare-denominated "
+                    f"(see csv_loader.py) — without px_area_ha, valuation will "
+                    f"silently treat {self._unit_label} figures as if they were "
+                    f"hectares. Pass px_area_ha=engine.px_area_ha to fix this."
+                )
+        else:
+            self._ha_per_unit = (px_area_ha / px_area) if px_area else 1.0
 
         # Build service lookup: class_name → list of services
         self._svc_by_class: dict[str, list[EcosystemService]] = {}
@@ -215,15 +261,16 @@ class SEEAAccount:
         total_val: dict[str, float] = {}
         for sc in self.classes.values():
             svcs = self._svc_by_class.get(sc.name, [])
-            total_val[sc.name] = sum(s.value_per_ha for s in svcs)
+            total_val[sc.name] = sum(s.value_per_unit_area for s in svcs)
 
         val_matrix = pd.DataFrame(0.0, index=tm.index, columns=tm.columns)
         for from_cls in tm.index:
             for to_cls in tm.columns:
                 area = tm.loc[from_cls, to_cls]
                 if area > 0:
+                    area_ha = area * self._ha_per_unit
                     delta = total_val.get(to_cls, 0) - total_val.get(from_cls, 0)
-                    val_matrix.loc[from_cls, to_cls] = area * delta
+                    val_matrix.loc[from_cls, to_cls] = area_ha * delta
 
         val_matrix.index.name   = "From \\ To (currency)"
         val_matrix.columns.name = None
@@ -236,11 +283,15 @@ class SEEAAccount:
         Unified physical-quantity resolver across all three modes.
         Returns None if no physical quantity applies (Mode A, no
         PhysicalUnit defined).
+
+        `area` is in the run's AREA_UNIT — converted to hectares before
+        applying physical_per_unit_area, which is always hectare-denominated.
         """
         if svc.has_stockflow_source:
             return self._lookup_stockflow_quantity(svc, class_name, year)
         if svc.has_physical:
-            return svc.physical_per_ha * area
+            area_ha = area * self._ha_per_unit
+            return svc.physical_per_unit_area * area_ha
         return None
 
     def _service_monetary_value(
@@ -249,14 +300,18 @@ class SEEAAccount:
         """
         Unified monetary-value resolver across all three modes.
 
-        Mode A/B: value = ValuePerHa * area  (ValuePerHa is per-area price)
-        Mode C:   value = stockflow_quantity * ValuePerHa
-                  (ValuePerHa is reinterpreted as price PER PHYSICAL UNIT)
+        Mode A/B: value = ValuePerUnitArea * area_ha  (ValuePerUnitArea is a
+                  hectare-denominated price; `area`, given in the run's
+                  AREA_UNIT, is converted to hectares first)
+        Mode C:   value = stockflow_quantity * ValuePerUnitArea
+                  (ValuePerUnitArea is reinterpreted as price PER PHYSICAL UNIT,
+                  not area-denominated, so no ha conversion applies)
         """
         if svc.has_stockflow_source:
             qty = self._lookup_stockflow_quantity(svc, class_name, year)
-            return qty * svc.value_per_ha
-        return svc.value_per_ha * area
+            return qty * svc.value_per_unit_area
+        area_ha = area * self._ha_per_unit
+        return svc.value_per_unit_area * area_ha
 
     def physical_flow_account(self) -> pd.DataFrame | None:
         """
@@ -312,8 +367,9 @@ class SEEAAccount:
         Monetary ecosystem service flow account.
         Rows: year. Columns: (service_type, service_name). Values: total value.
 
-        Mode A/B services: ValuePerHa is treated as value per area unit.
-        Mode C services (v3.2): ValuePerHa is treated as price PER PHYSICAL
+        Mode A/B services: ValuePerUnitArea is hectare-denominated; area is
+        converted from the run's AREA_UNIT back to hectares first.
+        Mode C services (v3.2): ValuePerUnitArea is treated as price PER PHYSICAL
         UNIT, applied to the stock/flow-sourced quantity.
         """
         records = []
@@ -377,6 +433,9 @@ class SEEAAccount:
         """
         Min/max range of total ecosystem value across iterations.
         Returns None if area_df (raw) was not provided.
+
+        Assumes area_df uses the same AREA_UNIT as area_modal_df (true for
+        any single engine run) — reuses the same ha-conversion factor.
         """
         if self.area_df is None or self.area_df.empty:
             return None
@@ -386,9 +445,10 @@ class SEEAAccount:
         for (iteration, year, class_name), grp in self.area_df.groupby(
             ["iteration", "year", "class_name"]
         ):
-            area = grp[raw_acol].sum()
+            area    = grp[raw_acol].sum()
+            area_ha = area * self._ha_per_unit
             svcs = self._svc_by_class.get(class_name, [])
-            val  = sum(s.value_per_ha for s in svcs) * area
+            val  = sum(s.value_per_unit_area for s in svcs) * area_ha
             records.append({"iteration": iteration, "year": year, "value": val})
 
         df    = pd.DataFrame(records)

@@ -166,7 +166,7 @@ SEEA_VALUATION_MODE                        = area    #str   (area | stock_flow)
 #----------------------------------------------------------------
 #EcosystemServices.csv
 #----------------------------------------------------------------
-#StateClassId,ServiceName,ServiceType,ValuePerHa,Currency,PhysicalUnit,PhysicalValuePerHa
+#StateClassId,ServiceName,ServiceType,ValuePerUnitArea,Currency,PhysicalUnit,PhysicalValuePerUnitArea
 #Mangrove,Carbon Sequestration,Regulating,97500000,IDR,MgC/ha,1300
 
 #----------------------------------------------------------------

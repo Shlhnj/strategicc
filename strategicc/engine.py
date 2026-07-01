@@ -18,7 +18,10 @@ import numpy as np
 import pandas as pd
 
 from strategicc import config
-from strategicc.io.raster     import read_lulc, save_tifs, get_pixel_area, UNIT_LABELS, resolve_mult_dir
+from strategicc.io.raster     import (
+    read_lulc, save_tifs, get_pixel_area, UNIT_LABELS, resolve_mult_dir,
+    get_crs_info, assert_crs_consistent,   # v3.6
+)
 from strategicc.io.csv_loader import (
     load_state_classes,
     load_transitions,
@@ -157,6 +160,7 @@ class StrategiccEngine:
         self.trans_mult_rules:    list  = []
         self.ecosystem_services:  list  = []
         self.src_tags:            dict  = {}
+        self._crs_info = None   # v3.6 — set in load()
         self.px_area_ha:          float = 1.0
         self.px_area:             float = 1.0   # v2.2 — in chosen unit
         self._initial_lulc:       np.ndarray | None = None
@@ -233,10 +237,12 @@ class StrategiccEngine:
         self._initial_lulc = lulc
         self.px_area = get_pixel_area(self.px_area_ha, self.area_unit)
         unit_label   = UNIT_LABELS[self.area_unit]
+        self._crs_info = get_crs_info(self.src_tags)   # v3.6
         print(f"  Shape: {lulc.shape}  |  "
               f"px_area: {self.px_area_ha:.6f} ha  "
               f"= {self.px_area:.6f} {unit_label}  "
               f"(AREA_UNIT='{self.area_unit}')")
+        print(f"  CRS: {self._crs_info.describe()}")
 
         print("\n[2] Loading state classes...")
         self.classes = load_state_classes(self.state_classes_csv)
@@ -255,7 +261,8 @@ class StrategiccEngine:
             entries = load_spatial_mult_index(self.spatial_mult_csv)
             resolved_mult_dir = resolve_mult_dir(self.mult_dir)   # v3.4 — zip support
             self.spatial_mults = load_spatial_multipliers(
-                entries, resolved_mult_dir, lulc.shape
+                entries, resolved_mult_dir, lulc.shape,
+                reference_crs=self._crs_info,   # v3.6
             )
         else:
             print("  [Skipped — USE_SPATIAL_MULT=False]")
@@ -288,8 +295,11 @@ class StrategiccEngine:
             rng_age = np.random.default_rng(self.rng_seed)
             if self.age_raster_path and self.age_raster_path.exists():
                 print(f"  Loading age raster: {self.age_raster_path}")
-                self._initial_age = build_initial_age_from_raster(
+                self._initial_age, age_crs_info = build_initial_age_from_raster(
                     str(self.age_raster_path)
+                )
+                assert_crs_consistent(   # v3.6 — blocks the run on a real mismatch
+                    self._crs_info, age_crs_info, "LULC raster", "age raster"
                 )
             elif self.age_initial_csv and self.age_initial_csv.exists():
                 print(f"  Building age map from assumptions: {self.age_initial_csv}")

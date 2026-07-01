@@ -44,8 +44,8 @@ def test_ecosystem_service_no_stockflow_source():
 def test_load_ecosystem_services_mode_c(tmp_path):
     p = tmp_path / "EcosystemServices.csv"
     p.write_text(
-        "StateClassId,ServiceName,ServiceType,ValuePerHa,Currency,"
-        "PhysicalUnit,PhysicalValuePerHa,StockFlowSource\n"
+        "StateClassId,ServiceName,ServiceType,ValuePerUnitArea,Currency,"
+        "PhysicalUnit,PhysicalValuePerUnitArea,StockFlowSource\n"
         "Mangrove,Carbon Sequestration,Regulating,75000,IDR,MgC,,flow:NPP\n"
     )
     services = load_ecosystem_services(p)
@@ -53,13 +53,43 @@ def test_load_ecosystem_services_mode_c(tmp_path):
     assert services[0].has_stockflow_source
     assert services[0].stockflow_kind == "flow"
     assert services[0].stockflow_type_name == "NPP"
-    assert services[0].physical_per_ha is None
+    assert services[0].physical_per_unit_area is None
+
+def test_load_ecosystem_services_legacy_column_names_still_work(tmp_path, capsys):
+    """Old ValuePerHa/PhysicalValuePerHa headers (pre-v3.3) still parse."""
+    p = tmp_path / "EcosystemServices.csv"
+    p.write_text(
+        "StateClassId,ServiceName,ServiceType,ValuePerHa,Currency,"
+        "PhysicalUnit,PhysicalValuePerHa\n"
+        "Mangrove,Carbon,Regulating,75000,IDR,MgC/ha,1300\n"
+    )
+    services = load_ecosystem_services(p)
+    assert len(services) == 1
+    assert services[0].value_per_unit_area == 75000
+    assert services[0].physical_per_unit_area == 1300
+    captured = capsys.readouterr()
+    assert "legacy column" in captured.out
+
+def test_load_ecosystem_services_intermediate_v33_column_names_still_work(tmp_path, capsys):
+    """Short-lived v3.3 ValuePerUnit/PhysicalValuePerUnit headers still parse."""
+    p = tmp_path / "EcosystemServices.csv"
+    p.write_text(
+        "StateClassId,ServiceName,ServiceType,ValuePerUnit,Currency,"
+        "PhysicalUnit,PhysicalValuePerUnit\n"
+        "Mangrove,Carbon,Regulating,75000,IDR,MgC/ha,1300\n"
+    )
+    services = load_ecosystem_services(p)
+    assert len(services) == 1
+    assert services[0].value_per_unit_area == 75000
+    assert services[0].physical_per_unit_area == 1300
+    captured = capsys.readouterr()
+    assert "legacy column" in captured.out
 
 def test_load_ecosystem_services_invalid_stockflow_source_warns(tmp_path, capsys):
     p = tmp_path / "EcosystemServices.csv"
     p.write_text(
-        "StateClassId,ServiceName,ServiceType,ValuePerHa,Currency,"
-        "PhysicalUnit,PhysicalValuePerHa,StockFlowSource\n"
+        "StateClassId,ServiceName,ServiceType,ValuePerUnitArea,Currency,"
+        "PhysicalUnit,PhysicalValuePerUnitArea,StockFlowSource\n"
         "Mangrove,Bad,Regulating,75000,IDR,,,invalidformat\n"
     )
     services = load_ecosystem_services(p)
@@ -71,8 +101,8 @@ def test_load_ecosystem_services_invalid_stockflow_source_warns(tmp_path, capsys
 def test_load_ecosystem_services_mode_a_b_still_work(tmp_path):
     p = tmp_path / "EcosystemServices.csv"
     p.write_text(
-        "StateClassId,ServiceName,ServiceType,ValuePerHa,Currency,"
-        "PhysicalUnit,PhysicalValuePerHa\n"
+        "StateClassId,ServiceName,ServiceType,ValuePerUnitArea,Currency,"
+        "PhysicalUnit,PhysicalValuePerUnitArea\n"
         "Mangrove,Tourism,Cultural,5000,IDR,,\n"
         "Mangrove,Carbon,Regulating,75000,IDR,MgC/ha,1300\n"
     )
@@ -81,7 +111,7 @@ def test_load_ecosystem_services_mode_a_b_still_work(tmp_path):
     assert not services[0].has_physical
     assert not services[0].has_stockflow_source
     assert services[1].has_physical
-    assert services[1].physical_per_ha == 1300
+    assert services[1].physical_per_unit_area == 1300
 
 
 # ── SEEAAccount Mode C valuation ──────────────────────────────────────────────
@@ -186,6 +216,48 @@ def test_mode_a_b_unaffected_by_mode_c_presence(classes, area_modal_df):
     carbon_value  = mon.loc[2022, ("Regulating", "Carbon Sequestration")]
     assert tourism_value == pytest.approx(100.0 * 5000)
     assert carbon_value  == pytest.approx(1840.0 * 75000)
+
+
+# ── v3.3: area-unit conversion in valuation ─────────────────────────────────
+
+def test_mode_a_valuation_correct_when_area_unit_is_km2(classes):
+    """
+    ValuePerUnitArea is hectare-denominated. When area_modal_df is expressed in
+    km2 (AREA_UNIT="km2"), SEEAAccount must convert back to hectares using
+    px_area_ha before applying the price — 1 km2 = 100 ha.
+    """
+    area_modal_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove", "area_km2": 1.0},
+    ])
+    services = [
+        EcosystemService("Mangrove", "Tourism", "Cultural", 1000, "IDR", None, None),
+    ]
+    # 1 pixel = 0.01 ha = 0.0001 km2  →  px_area_ha / px_area = 100 (ha per km2)
+    acct = SEEAAccount(
+        area_modal_df=area_modal_df, trans_df=pd.DataFrame(), services=services,
+        classes=classes, px_area=0.0001, px_area_ha=0.01,
+    )
+    mon = acct.monetary_flow_account()
+    # 1 km2 = 100 ha  →  value = 1000 IDR/ha * 100 ha = 100,000 IDR
+    assert mon.loc[2022].values[0] == pytest.approx(1000 * 100.0)
+
+def test_mode_a_valuation_without_px_area_ha_warns_when_not_ha(classes, capsys):
+    """
+    Omitting px_area_ha when the area unit isn't hectares should warn,
+    since valuation would otherwise silently treat km2/px as if hectares.
+    """
+    area_modal_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove", "area_km2": 1.0},
+    ])
+    services = [
+        EcosystemService("Mangrove", "Tourism", "Cultural", 1000, "IDR", None, None),
+    ]
+    SEEAAccount(
+        area_modal_df=area_modal_df, trans_df=pd.DataFrame(), services=services,
+        classes=classes, px_area=0.0001,   # px_area_ha intentionally omitted
+    )
+    captured = capsys.readouterr()
+    assert "px_area_ha" in captured.out
 
 
 # ── Aggregation functions ──────────────────────────────────────────────────────

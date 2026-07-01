@@ -1,5 +1,5 @@
 """
-strategicc/core/spatial.py  —  1c. Spatial multipliers
+strategicc/core/spatial.py  —  1c. Spatial multipliers  (v3.6: CRS check)
 -------------------------------------------------
 Loads per-group spatial multiplier rasters (normalised 0–1, white = high
 suitability / close to feature) and applies a power-sharpening curve to
@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from strategicc.io.raster import read_tiff
+from strategicc.io.raster import read_tiff, get_crs_info, assert_crs_consistent, CRSInfo
 from strategicc.io.csv_loader import SpatialMultEntry
 from strategicc import config
 
@@ -27,6 +27,7 @@ def load_spatial_multipliers(
     entries:      list[SpatialMultEntry],
     mult_dir:     str | Path,
     target_shape: tuple[int, int],
+    reference_crs: CRSInfo | None = None,   # v3.6
 ) -> dict[str, np.ndarray]:
     """
     Build a dict mapping group_name → float32 multiplier array of shape
@@ -38,6 +39,16 @@ def load_spatial_multipliers(
     entries      : output of load_spatial_mult_index()
     mult_dir     : directory containing the multiplier TIF files
     target_shape : (rows, cols) — must match the LULC raster
+    reference_crs : (v3.6) CRSInfo of the LULC raster, e.g.
+                    engine's get_crs_info(engine.src_tags). If given,
+                    every multiplier raster's CRS is checked against it
+                    and a ValueError is raised on a confirmed mismatch —
+                    a spatial multiplier on a different CRS/grid than the
+                    LULC raster would be resampled (target_shape resize
+                    below) as if it were aligned, silently corrupting
+                    where transitions get concentrated. Pass None to skip
+                    the check (e.g. in tests using synthetic rasters with
+                    no georeferencing).
 
     Returns
     -------
@@ -55,7 +66,13 @@ def load_spatial_multipliers(
             multipliers[group] = np.ones(target_shape, dtype=np.float32)
             continue
 
-        arr, *_ = read_tiff(fpath)
+        arr, _px_area_ha, tags = read_tiff(fpath)
+
+        if reference_crs is not None:
+            assert_crs_consistent(
+                reference_crs, get_crs_info(tags),
+                "LULC raster", f"spatial multiplier '{entry.filename}'",
+            )
 
         # ── Resize to target if needed ────────────────────────────────────
         if arr.shape != target_shape:

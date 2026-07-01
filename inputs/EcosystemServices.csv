@@ -1,4 +1,4 @@
-StateClassId,ServiceName,ServiceType,ValuePerHa,Currency,PhysicalUnit,PhysicalValuePerHa,StockFlowSource
+StateClassId,ServiceName,ServiceType,ValuePerUnitArea,Currency,PhysicalUnit,PhysicalValuePerUnitArea,StockFlowSource
 Water_body,,,,,,,
 Tidal_flat,Coastal Protection,Regulating,5000000,IDR,,,
 Mangrove,Carbon Sequestration,Regulating,75000,IDR,MgC,,flow:NPP

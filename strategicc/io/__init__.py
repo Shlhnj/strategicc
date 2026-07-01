@@ -1,4 +1,7 @@
-from .raster import read_lulc, read_tiff, save_tifs, get_pixel_area, resolve_mult_dir
+from .raster import (
+    read_lulc, read_tiff, save_tifs, get_pixel_area, resolve_mult_dir,
+    CRSInfo, get_crs_info, assert_crs_consistent,   # v3.6
+)
 from .csv_loader import (
     load_state_classes,
     load_transitions,
@@ -15,6 +18,7 @@ from .csv_loader import (
 
 __all__ = [
     "read_lulc", "read_tiff", "save_tifs", "get_pixel_area", "resolve_mult_dir",
+    "CRSInfo", "get_crs_info", "assert_crs_consistent",
     "load_state_classes", "load_transitions",
     "load_spatial_mult_index", "load_transition_multipliers",
     "load_initial_age_rules", "load_transition_size_rules", "group_size_bins",

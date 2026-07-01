@@ -150,6 +150,7 @@ def main() -> None:
             services      = engine.ecosystem_services,
             classes       = engine.classes,
             px_area       = engine.px_area,
+            px_area_ha    = engine.px_area_ha,   # v3.3 — required for correct valuation when AREA_UNIT != "ha"
             area_df       = area_df,
             stock_df      = stock_df,   # v3.2 — Mode C
             flow_df       = flow_df,    # v3.2 — Mode C

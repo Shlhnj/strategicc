@@ -139,9 +139,9 @@ INITIAL_STOCK_NON_SPATIAL_CSV          = Path("inputs/InitialStockNonSpatial.csv
 SAVE_STOCK_RASTERS = True
 
 # SEEA-EA valuation mode (v3.2):
-#   "area"        — current v2.2 behaviour: ValuePerHa x area (static)
+#   "area"        — current v2.2 behaviour: ValuePerUnitArea x area_ha (static)
 #   "stock_flow"  — pull carbon quantity from the Stock & Flow engine's
-#                   flow output instead of static PhysicalValuePerHa
+#                   flow output instead of static PhysicalValuePerUnitArea
 SEEA_VALUATION_MODE = "area"
 
 

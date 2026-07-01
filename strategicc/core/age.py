@@ -30,7 +30,7 @@ from strategicc.io.csv_loader import InitialAgeRule
 # 1. Build initial age map
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_initial_age_from_raster(path: str) -> np.ndarray:
+def build_initial_age_from_raster(path: str) -> tuple[np.ndarray, "CRSInfo"]:
     """
     Load age raster from a GeoTIFF.
 
@@ -46,11 +46,18 @@ def build_initial_age_from_raster(path: str) -> np.ndarray:
 
     Returns
     -------
-    uint16 array, shape (rows, cols)
+    (arr, crs_info) : uint16 array shape (rows, cols), and a CRSInfo
+                       (v3.6) describing the raster's CRS — pass this to
+                       assert_crs_consistent() against the LULC raster's
+                       CRSInfo to catch a mismatched age raster before it
+                       silently corrupts area-derived accounting.
     """
     from PIL import Image
+    from strategicc.io.raster import get_crs_info, CRSInfo
     try:
-        arr = np.array(Image.open(str(path)), dtype=np.uint16)
+        img = Image.open(str(path))
+        arr = np.array(img, dtype=np.uint16)
+        crs_info = get_crs_info(img.tag_v2)
     except ValueError as e:
         if "unknown raw mode" not in str(e):
             raise
@@ -65,10 +72,11 @@ def build_initial_age_from_raster(path: str) -> np.ndarray:
             ) from e
         with rasterio.open(str(path)) as src:
             arr = src.read(1).astype(np.uint16)
+            crs_info = CRSInfo.from_rasterio_crs(src.crs)
 
     print(f"  Age raster loaded: shape={arr.shape}  "
           f"min={arr.min()}  max={arr.max()}  mean={arr.mean():.1f}")
-    return arr
+    return arr, crs_info
 
 
 def build_initial_age_from_rules(

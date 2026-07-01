@@ -1,30 +1,52 @@
 """
-strategicc/accounting/csv_loader.py  —  v3.2
+strategicc/accounting/csv_loader.py  —  v3.3
 -------------------------------------
 Parse EcosystemServices.csv into EcosystemService dataclasses.
+
+UNIT CONVENTION (v3.3)
+-----------------------
+ValuePerUnitArea and PhysicalValuePerUnitArea are always denominated PER HECTARE,
+regardless of the engine's configured AREA_UNIT (ha | km2 | px). This is
+a fixed, physically meaningful reference unit — hectares don't change
+size when you switch a run's display unit to km2 or px pixel counts.
+
+SEEAAccount converts the area figures it receives (which ARE expressed
+in whatever AREA_UNIT the run used) back to hectares internally before
+applying these prices, using px_area_ha (the known real-world size of
+one raster pixel). Callers don't need to do any conversion themselves —
+just author the CSV in per-hectare terms and pass px_area_ha through to
+SEEAAccount.
+
+The columns were renamed from ValuePerHa/PhysicalValuePerHa (pre-v3.3)
+to ValuePerUnitArea/PhysicalValuePerUnitArea to stop implying that the *engine's*
+area unit had to be hectares — it doesn't; only the price basis does.
+Old column names are still accepted for backward compatibility (with a
+one-time warning) and are interpreted identically.
 
 CSV format (three modes supported):
 
 Mode A — monetary value per ha only (no physical unit):
-    StateClassId, ServiceName, ServiceType, ValuePerHa, Currency
+    StateClassId, ServiceName, ServiceType, ValuePerUnitArea, Currency
     Mangrove, Ecotourism, Cultural, 12500000, IDR
 
 Mode B — physical unit + monetary value per ha (static, area-based):
-    StateClassId, ServiceName, ServiceType, ValuePerHa, Currency, PhysicalUnit, PhysicalValuePerHa
+    StateClassId, ServiceName, ServiceType, ValuePerUnitArea, Currency, PhysicalUnit, PhysicalValuePerUnitArea
     Mangrove, Carbon Sequestration, Regulating, 97500000, IDR, MgC/ha, 1300
 
 Mode C — physical quantity sourced from the Stock & Flow engine (v3.2):
-    StateClassId, ServiceName, ServiceType, ValuePerHa, Currency, PhysicalUnit, PhysicalValuePerHa, StockFlowSource
+    StateClassId, ServiceName, ServiceType, ValuePerUnitArea, Currency, PhysicalUnit, PhysicalValuePerUnitArea, StockFlowSource
     Mangrove, Carbon Sequestration, Regulating, 75000, IDR, MgC, , flow:NPP
     Mangrove, Carbon Storage, Regulating, 75000, IDR, MgC, , stock:Biomass
 
     StockFlowSource format: "flow:<FlowTypeId>" or "stock:<StockTypeId>".
-    When set, PhysicalValuePerHa is ignored — the physical quantity is
+    When set, PhysicalValuePerUnitArea is ignored — the physical quantity is
     instead read directly from the Stock & Flow engine's per-class total
     (stock_table.csv total, or flow_log.csv total_amount summed across
-    matching flow_type rows for that year), and ValuePerHa is then
+    matching flow_type rows for that year), and ValuePerUnitArea is then
     treated as a price PER PHYSICAL UNIT (not per area) — i.e. monetary
-    value = stock_flow_quantity * ValuePerHa.
+    value = stock_flow_quantity * ValuePerUnitArea. (Mode C values are not
+    area-denominated at all, so the hectare convention above doesn't
+    apply to them.)
 
 ServiceType must be one of: Provisioning, Regulating, Cultural
 """
@@ -44,16 +66,18 @@ class EcosystemService:
     state_class:        str           # matches StateClass name e.g. "Mangrove"
     service_name:       str           # e.g. "Carbon Sequestration"
     service_type:       str           # "Provisioning" | "Regulating" | "Cultural"
-    value_per_ha:       float         # monetary value per hectare per year (Mode A/B)
+    value_per_unit_area:      float         # monetary value PER HECTARE per year (Mode A/B)
                                        # OR price per physical unit (Mode C)
+                                       # — always hectare-denominated for A/B,
+                                       # see module docstring UNIT CONVENTION.
     currency:           str           # e.g. "IDR"
     physical_unit:      str | None    # e.g. "MgC/ha" — None if Mode A
-    physical_per_ha:    float | None  # physical quantity per ha — None if Mode A/C
+    physical_per_unit_area:    float | None  # physical quantity PER HECTARE — None if Mode A/C
     stockflow_source:   str | None = None   # v3.2 — "flow:<Type>" | "stock:<Type>" | None
 
     @property
     def has_physical(self) -> bool:
-        return self.physical_unit is not None and self.physical_per_ha is not None
+        return self.physical_unit is not None and self.physical_per_unit_area is not None
 
     @property
     def has_stockflow_source(self) -> bool:
@@ -80,10 +104,15 @@ def load_ecosystem_services(path: str | Path) -> list[EcosystemService]:
     Parse EcosystemServices.csv.
 
     Required columns:
-        StateClassId, ServiceName, ServiceType, ValuePerHa, Currency
+        StateClassId, ServiceName, ServiceType, ValuePerUnitArea, Currency
+        (legacy name ValuePerHa is still accepted — see module docstring)
 
     Optional columns (Mode B):
-        PhysicalUnit, PhysicalValuePerHa
+        PhysicalUnit, PhysicalValuePerUnitArea
+        (legacy name PhysicalValuePerHa is still accepted)
+
+    All ValuePerUnitArea / PhysicalValuePerUnitArea figures are interpreted as
+    PER HECTARE regardless of the run's AREA_UNIT — see module docstring.
 
     Returns
     -------
@@ -91,9 +120,25 @@ def load_ecosystem_services(path: str | Path) -> list[EcosystemService]:
     """
     path = Path(path)
     services: list[EcosystemService] = []
+    warned_legacy_value_col = False
+    warned_legacy_phys_col  = False
 
     with path.open(newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
+        fieldnames = reader.fieldnames or []
+
+        # Column name resolution (new name preferred, legacy names accepted:
+        # "ValuePerUnit"/"PhysicalValuePerUnit" existed briefly pre-3.5.4;
+        # "ValuePerHa"/"PhysicalValuePerHa" are the original pre-3.3 names)
+        value_col = next(
+            (c for c in ("ValuePerUnitArea", "ValuePerUnit", "ValuePerHa") if c in fieldnames),
+            "ValuePerUnitArea",
+        )
+        phys_col = next(
+            (c for c in ("PhysicalValuePerUnitArea", "PhysicalValuePerUnit", "PhysicalValuePerHa") if c in fieldnames),
+            "PhysicalValuePerUnitArea",
+        )
+
         for i, row in enumerate(reader, start=2):
             state_class  = row.get("StateClassId", "").strip()
             service_name = row.get("ServiceName", "").strip()
@@ -101,10 +146,15 @@ def load_ecosystem_services(path: str | Path) -> list[EcosystemService]:
             currency     = row.get("Currency", "").strip()
 
             # Parse monetary value
+            if value_col != "ValuePerUnitArea" and not warned_legacy_value_col:
+                print(f"  [Warning] '{path.name}' uses legacy column '{value_col}' — "
+                      f"still interpreted as per-hectare, but consider renaming to "
+                      f"'ValuePerUnitArea' (see accounting/csv_loader.py docstring).")
+                warned_legacy_value_col = True
             try:
-                value_per_ha = float(row.get("ValuePerHa", "").strip())
+                value_per_unit_area = float(row.get(value_col, "").strip())
             except (ValueError, AttributeError):
-                print(f"  [Warning] Row {i}: invalid ValuePerHa — skipped")
+                print(f"  [Warning] Row {i}: invalid {value_col} — skipped")
                 continue
 
             # Validate service type
@@ -119,11 +169,16 @@ def load_ecosystem_services(path: str | Path) -> list[EcosystemService]:
 
             # Optional physical columns (Mode B)
             phys_unit = row.get("PhysicalUnit", "").strip() or None
-            phys_raw  = row.get("PhysicalValuePerHa", "").strip()
+            phys_raw  = row.get(phys_col, "").strip()
+            if phys_col != "PhysicalValuePerUnitArea" and phys_raw and not warned_legacy_phys_col:
+                print(f"  [Warning] '{path.name}' uses legacy column '{phys_col}' — "
+                      f"still interpreted as per-hectare, but consider renaming to "
+                      f"'PhysicalValuePerUnitArea'.")
+                warned_legacy_phys_col = True
             try:
-                phys_per_ha = float(phys_raw) if phys_raw else None
+                phys_per_unit = float(phys_raw) if phys_raw else None
             except ValueError:
-                phys_per_ha = None
+                phys_per_unit = None
 
             # Mode C (v3.2): StockFlowSource overrides physical sourcing
             sf_source_raw = row.get("StockFlowSource", "").strip() or None
@@ -134,26 +189,26 @@ def load_ecosystem_services(path: str | Path) -> list[EcosystemService]:
                           f"'flow:<Type>' or 'stock:<Type>'. Falling back to Mode A/B.")
                     sf_source_raw = None
                 else:
-                    # Mode C: PhysicalValuePerHa is not used (quantity comes
+                    # Mode C: PhysicalValuePerUnitArea is not used (quantity comes
                     # from the Stock & Flow engine instead), so any value
                     # there is intentionally ignored, not validated as an error.
-                    phys_per_ha = None
+                    phys_per_unit = None
 
             # Both must be present for Mode B, or both absent for Mode A/C
-            if sf_source_raw is None and (phys_unit is None) != (phys_per_ha is None):
+            if sf_source_raw is None and (phys_unit is None) != (phys_per_unit is None):
                 print(f"  [Warning] Row {i} ({state_class} / {service_name}): "
-                      "PhysicalUnit and PhysicalValuePerHa must both be present "
+                      "PhysicalUnit and PhysicalValuePerUnitArea must both be present "
                       "or both absent — treating as Mode A")
-                phys_unit = phys_per_ha = None
+                phys_unit = phys_per_unit = None
 
             services.append(EcosystemService(
                 state_class      = state_class,
                 service_name     = service_name,
                 service_type     = service_type,
-                value_per_ha     = value_per_ha,
+                value_per_unit_area    = value_per_unit_area,
                 currency         = currency,
                 physical_unit    = phys_unit,
-                physical_per_ha  = phys_per_ha,
+                physical_per_unit_area  = phys_per_unit,
                 stockflow_source = sf_source_raw,
             ))
 
