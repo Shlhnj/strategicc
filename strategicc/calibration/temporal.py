@@ -1,5 +1,5 @@
 """
-strategicc/calibration/temporal.py  —  v2.4
+strategicc/calibration/temporal.py  —  v3.9
 ------------------------------------------------
 Derive the temporal (stochastic) transition multiplier distribution from
 the SAME year-by-year transition counts used by compute_transition_rates().
@@ -106,8 +106,24 @@ def compute_temporal_distribution(
     return result
 
 
-def save_temporal_distribution_csv(df: pd.DataFrame, out_path: str | Path) -> None:
-    """Save derived temporal distribution in ST-Sim TransitionMultipliers.csv format."""
-    out_path = Path(out_path)
+def save_temporal_distribution_csv(
+    df:       pd.DataFrame,
+    out_path: str | Path | None = None,
+) -> Path:
+    """Save derived temporal distribution in ST-Sim TransitionMultipliers.csv format.
+
+    Parameters
+    ----------
+    df       : DataFrame from compute_temporal_distribution()
+    out_path : destination path; defaults to calibration_result/TransitionMultipliers.csv
+
+    Returns
+    -------
+    Path actually written to
+    """
+    from strategicc.calibration.paths import TRANS_MULT_CSV
+    out_path = Path(out_path) if out_path is not None else TRANS_MULT_CSV
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
     print(f"  Saved: {out_path}")
+    return out_path
