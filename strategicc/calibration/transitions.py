@@ -1,5 +1,5 @@
 """
-strategicc/calibration/transitions.py  —  v2.4
+strategicc/calibration/transitions.py  —  v3.9
 --------------------------------------------------
 Derive transition rates from a historical LULC time series.
 
@@ -177,11 +177,27 @@ def compute_transition_rates(
     return result
 
 
-def save_transitions_csv(df: pd.DataFrame, out_path: str | Path) -> None:
-    """Save derived transition rates in ST-Sim Transitions.csv format."""
-    out_path = Path(out_path)
+def save_transitions_csv(
+    df:       pd.DataFrame,
+    out_path: str | Path | None = None,
+) -> Path:
+    """Save derived transition rates in ST-Sim Transitions.csv format.
+
+    Parameters
+    ----------
+    df       : DataFrame from compute_transition_rates()
+    out_path : destination path; defaults to calibration_result/Transitions.csv
+
+    Returns
+    -------
+    Path actually written to
+    """
+    from strategicc.calibration.paths import TRANSITIONS_CSV
+    out_path = Path(out_path) if out_path is not None else TRANSITIONS_CSV
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
     print(f"  Saved: {out_path}")
+    return out_path
 
 
 def compute_size_distribution(
@@ -310,8 +326,24 @@ def compute_size_distribution(
     return result
 
 
-def save_size_distribution_csv(df: pd.DataFrame, out_path: str | Path) -> None:
-    """Save derived patch-size distribution in ST-Sim TransitionSizeDistribution.csv format."""
-    out_path = Path(out_path)
+def save_size_distribution_csv(
+    df:       pd.DataFrame,
+    out_path: str | Path | None = None,
+) -> Path:
+    """Save derived patch-size distribution in ST-Sim TransitionSizeDistribution.csv format.
+
+    Parameters
+    ----------
+    df       : DataFrame from compute_size_distribution()
+    out_path : destination path; defaults to calibration_result/TransitionSizeDistribution.csv
+
+    Returns
+    -------
+    Path actually written to
+    """
+    from strategicc.calibration.paths import TRANS_SIZE_CSV
+    out_path = Path(out_path) if out_path is not None else TRANS_SIZE_CSV
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
     print(f"  Saved: {out_path}")
+    return out_path
