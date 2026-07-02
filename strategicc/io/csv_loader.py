@@ -9,6 +9,7 @@ StateClasses.csv                 → load_state_classes()
 Transitions.csv                  → load_transitions()
 TransitionSpatialMultipliers.csv → load_spatial_mult_index()
 TransitionMultipliers.csv        → load_transition_multipliers()   v1.1
+Distributions.csv                → load_distributions()             v3.6.1
 """
 
 from __future__ import annotations
@@ -67,12 +68,28 @@ class TransitionMultiplierRule:
     Supported DistributionType values: 'Uniform'  (others reserved for v1.2+)
     """
     group:            str           # TransitionGroupId (suffix stripped)
-    distribution:     str           # e.g. "Uniform"
+    distribution:     str           # e.g. "Uniform" or a Distributions.csv name
     dist_min:         float
     dist_max:         float
     amount:           float | None = None   # optional fixed amount (unused if dist set)
     iteration:        int   | None = None
     timestep:         int   | None = None
+
+
+@dataclass
+class DistributionEntry:
+    """
+    One named empirical distribution from Distributions.csv (v3.6.1).
+
+    Represents a discrete weighted distribution: a set of (value, weight)
+    pairs sampled with probability proportional to weight. Referenced by
+    name from TransitionMultipliers.csv's DistributionType column (e.g.
+    "Agriculture_expansion Distribution").
+    """
+    name:    str                        # DistributionTypeId, e.g. "Agriculture_expansion Distribution"
+    values:  list[float]  = field(default_factory=list)
+    weights: list[float]  = field(default_factory=list)
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -271,6 +288,61 @@ def load_transition_multipliers(path: str | Path) -> list[TransitionMultiplierRu
 
     print(f"  {len(rules)} transition multiplier rule(s) loaded")
     return rules
+
+
+def load_distributions(path: str | Path) -> dict[str, DistributionEntry]:
+    """
+    Parse Distributions.csv (v3.6.1).
+
+    Expected columns (ST-Sim format):
+        Iteration, Timestep, StratumId, SecondaryStratumId, TertiaryStratumId,
+        DistributionTypeId, ExternalVariableTypeId, ExternalVariableMin,
+        ExternalVariableMax, Value, ValueDistributionTypeId,
+        ValueDistributionFrequency, ValueDistributionSD, ValueDistributionMin,
+        ValueDistributionMax, ValueDistributionRelativeFrequency
+
+    Only DistributionTypeId, Value, and ValueDistributionRelativeFrequency
+    are used in v3.6.1 — this loader treats each named distribution as a
+    discrete empirical set of (Value, weight) pairs, matching how ST-Sim's
+    Distributions Datafeed is used for Transition Multiplier sampling
+    (Iteration/Timestep frequency mode). Rows missing DistributionTypeId or
+    Value are skipped with a warning. A missing ValueDistributionRelativeFrequency
+    defaults to a weight of 1.
+
+    Returns
+    -------
+    dict mapping distribution name (str) -> DistributionEntry
+    """
+    path = Path(path)
+    table: dict[str, DistributionEntry] = {}
+    skipped = 0
+
+    with path.open(newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            name  = row.get("DistributionTypeId", "").strip()
+            value = _parse_float_or_none(row.get("Value", ""))
+
+            if not name or value is None:
+                skipped += 1
+                continue
+
+            weight = _parse_float_or_none(row.get("ValueDistributionRelativeFrequency", ""))
+            if weight is None:
+                weight = 1.0
+
+            entry = table.setdefault(name, DistributionEntry(name=name))
+            entry.values.append(value)
+            entry.weights.append(weight)
+
+    print(f"  {len(table)} named distribution(s) loaded from {path} "
+          f"({sum(len(e.values) for e in table.values())} value row(s))")
+    if skipped:
+        print(f"  [Warning] {skipped} row(s) in {path} skipped "
+              "(missing DistributionTypeId or Value)")
+
+    return table
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
