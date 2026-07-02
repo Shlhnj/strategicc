@@ -23,7 +23,159 @@ interface is the CSV schema and `SEEAAccount`/`load_ecosystem_services()`/
 
 ---
 
-## [3.6.0] -- latest
+## [3.9.0] 
+
+Calibration workflow improvements: predefined output paths, auto-generated
+run manifest, and a post-calibration summary report. No changes to the
+simulation engine or SEEA-EA accounting.
+
+### Added
+
+- **`strategicc.calibration.paths`**, single module defining all
+  predefined output paths under `calibration_result/` (relative to cwd).
+  All calibration `save_*` functions now default to these paths so a
+  typical calibration run requires no path management by the user.
+  Explicit `out_path` arguments still accepted for custom layouts
+  (backward compatible).
+
+- **`save_calibration_manifest()`** (`strategicc/calibration/manifest.py`)
+  generates a `calibration_result/RunManifest_calibrated.txt` pre-filled
+  with the four fields that calibration can populate automatically:
+  `TRANSITIONS_CSV`, `TRANSITION_MULT_CSV`, `TRANSITION_SIZE_CSV`, and
+  `AgeFileName`. All remaining fields are left blank with `# TODO:` hint
+  comments explaining what each requires. Feature toggles (`USE_AGE`,
+  `USE_TRANS_MULTIPLIER`) are set to match what was actually calibrated
+  in the current run.
+
+- **`calibration_summary()`** (`strategicc/calibration/report.py`),
+  prints a formatted calibration result table to stdout, saves a
+  multi-panel summary PNG (`calibration_result/calibration_summary.png`),
+  and returns a dict of key statistics for programmatic access. The plot
+  includes: age raster spatial map, age histogram (≤10 bins), calibrated
+  transition probability bar chart, temporal multiplier range chart, and
+  patch-size cumulative distribution. The printed table lists which of
+  the four calibratable inputs were successfully derived and which fields
+  still require manual entry.
+
+### Changed
+
+- **`save_transitions_csv()`**, **`save_temporal_distribution_csv()`**,
+  **`save_size_distribution_csv()`**, **`save_age_raster()`**, `out_path`
+  argument is now optional (defaults to the corresponding predefined path
+  under `calibration_result/`). Return type changed from `None` to `Path`
+  (the path actually written to), so callers can pass the result directly
+  to `save_calibration_manifest()` without tracking paths manually.
+  Existing callers passing an explicit `out_path` are unaffected.
+
+- All calibration outputs now call `out_path.parent.mkdir(parents=True,
+  exist_ok=True)` before writing, so `calibration_result/` is created
+  automatically on first save.
+
+---
+
+## [3.8.0]
+
+Three independent improvements shipped together: calibration gains
+patch-size distribution derivation (closes a gap in the calibratable
+input set); a pre-existing spatial path bug is fixed across
+`outputs.py` and `animate.py`; and implicit scipy/rasterio import
+assumptions that broke `import strategicc` on a base install are
+corrected.
+
+### Added
+
+- **`compute_size_distribution()`** and **`save_size_distribution_csv()`**
+  (`strategicc/calibration/transitions.py`), derive a historical
+  patch-size frequency table (`TransitionSizeDistribution.csv`) from the
+  same LULC time series stack already loaded for transition-rate
+  calibration. Uses 8-connected component labeling (`scipy.ndimage`) to
+  identify contiguous patches of transitioning cells per year-pair,
+  converts pixel counts to hectares via `px_area_ha`, pools patch sizes
+  across all observed year-pairs per group, and bins into an
+  equal-frequency (quantile) cumulative histogram. The 8-connected
+  default matches `core.patches.grow_patch()`'s own BFS connectivity, so
+  calibration and simulation reason about "a patch" consistently.
+  Groups with fewer than `min_patches` observed patches are skipped with
+  a printed warning; the engine falls back to independent-cell firing for
+  any group absent from `TransitionSizeDistribution.csv`. Uses the same
+  `group_map` as `compute_transition_rates()` and
+  `compute_temporal_distribution()`, keeping one grouping scheme across
+  all three calibrated CSVs.
+
+### Fixed
+
+- **Double-nested spatial output path in `aggregate_spatial()` and
+  `plot_spatial_summary()`.**
+  `aggregate_spatial()` wrote modal/uncertainty rasters to
+  `summary_dir / "spatial"` while `plot_spatial_summary()` read from
+  `summary_dir` (no subfolder), so the uncertainty overlay panels in
+  `plot_spatial_summary()` silently rendered blank and the `lulc_mean_*`
+  count in the figure title was always 0. Both functions now write/read
+  directly from `summary_dir`. `animate.py`'s `_load_modal_frames()` and
+  main entry point had the same hardcoded `/ "spatial"` path and are
+  fixed to match. Stale path references in `docs/guides/04_visualization.md`
+  and `docs/reference/animate.md` are updated.
+
+- **`strategicc.accounting.outputs.plot_monetary_flows()` and
+  `save_all_accounts()` crashed when `SEEAAccount` was constructed
+  without `area_df=`.**
+  `acct.uncertainty_summary()` returned `None` in that case but was
+  called unconditionally, raising `AttributeError: 'NoneType' object has
+  no attribute 'set_index'`. Both call sites now guard with
+  `if unc_df is not None`, consistent with the existing guard on
+  `physical_flow_account()` in the same file.
+
+- **`import strategicc` failed with `ModuleNotFoundError: No module named
+  'scipy'` on a base install** (i.e. `pip install strategicc` without
+  extras). `strategicc/core/age.py` and `strategicc/outputs.py` both had
+  unconditional top-level `from scipy import stats as scipy_stats`
+  imports, but scipy was only declared as a `[calibration]` optional
+  extra, not a base dependency. Since `core.age`'s truncated-normal age
+  sampling and `outputs.py`'s modal-map aggregation are core-path
+  features used in every standard run, `scipy` is now a base dependency
+  (`pyproject.toml`). The module-level imports are retained as lazy
+  inline imports at the point of use (inside the `if rule.age_sd > 0`
+  branch and inside `aggregate_spatial()`'s per-timestep loop
+  respectively), matching the established rasterio lazy-import pattern
+  already used elsewhere in the codebase.
+
+- **`import strategicc.calibration` failed with `ImportError:
+  strategicc.calibration requires rasterio` even when rasterio was
+  absent but not needed.** `strategicc/calibration/loader.py` wrapped
+  `import rasterio` in a module-level `try/except` that re-raised
+  immediately, meaning the entire `calibration` package became
+  unimportable without rasterio, including `compute_size_distribution()`
+  and other functions that never touch rasterio. The import is now
+  genuinely deferred into `load_lulc_timeseries()`'s function body via
+  a `_require_rasterio()` helper, so `calibration` imports cleanly and
+  only `load_lulc_timeseries()` (the one function that actually needs
+  rasterio) raises on call.
+
+### Changed
+
+- **`scipy` moved from `[calibration]` optional extra to base
+  dependency** (`pyproject.toml`). See Fixed above for rationale.
+  `rasterio` remains a `[calibration]`-only extra, all rasterio imports
+  throughout the codebase are already correctly deferred to function-call
+  time and are unaffected.
+
+---
+
+## [3.7.0]
+
+### Added
+
+- **Transition size distribution support in the simulation engine.**
+  `TransitionSizeDistribution.csv` is now loaded and consumed by
+  `strategicc/core/patches.py` (patch-growing mechanic introduced in
+  2.5.0). Groups present in this file grow as discrete 8-connected
+  patches during simulation rather than firing independently
+  cell-by-cell. Groups absent from the file keep the existing
+  independent-cell mechanic, so partial coverage is valid and safe.
+
+---
+
+## [3.6.0] -- 2026-07-02
 
 Three related fixes, all stemming from the same root issue: area/CRS
 assumptions baked into pixel-area and valuation math that were only ever
@@ -149,7 +301,7 @@ public release; 3.5.2 is the first 3.5.x version on PyPI.)*
 ## [3.3.0] -- 2026-06-30
 ### Changed
 - `EcosystemServices.csv`: `ValuePerHa`/`PhysicalValuePerHa` renamed to
-  `ValuePerUnit`/`PhysicalValuePerUnit` (superseded in 3.5.4 — see above).
+  `ValuePerUnit`/`PhysicalValuePerUnit` (superseded in 3.5.4, see above).
 - Mode C valuation (stock/flow-sourced physical quantities) documented
   and finalized in `strategicc/accounting/seea.py` and
   `strategicc/accounting/csv_loader.py`.
