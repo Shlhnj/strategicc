@@ -1,5 +1,5 @@
 """
-strategicc/outputs.py  —  v2.1
+strategicc/outputs.py  —  v3.8
 --------------------------------
 Visualisation and tabular summary functions.
 
