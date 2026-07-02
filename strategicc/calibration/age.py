@@ -1,5 +1,5 @@
 """
-strategicc/calibration/age.py  —  v2.4
+strategicc/calibration/age.py  —  v3.9
 ------------------------------------------
 Backtrack a continuous (or binned) age-since-occupancy raster for ALL
 classes simultaneously, given an annual LULC time series.
@@ -166,22 +166,36 @@ def compute_age_raster(
 
 def save_age_raster(
     result:   AgeRasterResult,
-    out_path: str | Path,
+    out_path: str | Path | None = None,
     nodata:   int = NODATA_AGE,
-) -> None:
+) -> Path:
     """
     Write the combined age raster to disk as a GeoTIFF, preserving
     georeferencing from the source timeseries.
 
+    Parameters
+    ----------
+    result   : AgeRasterResult from compute_age_raster()
+    out_path : destination path; defaults to calibration_result/age.tif
+    nodata   : nodata value for uint16 GeoTIFF (default 65535)
+
+    Returns
+    -------
+    Path actually written to
+
     Requires rasterio.
     """
     import rasterio
+    from strategicc.calibration.paths import AGE_RASTER
 
-    out_path = Path(out_path)
+    out_path = Path(out_path) if out_path is not None else AGE_RASTER
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
     profile  = result.profile.copy()
     profile.update(dtype="uint16", count=1, nodata=nodata)
 
     with rasterio.open(str(out_path), "w", **profile) as dst:
         dst.write(result.age_combined, 1)
 
-    print(f"  Age raster saved to: {out_path}")
+    print(f"  Saved: {out_path}")
+    return out_path
