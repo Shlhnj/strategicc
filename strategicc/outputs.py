@@ -364,7 +364,7 @@ def aggregate_spatial(
     """
     from strategicc.io.raster import _TAG_TIE_POINT, _TAG_PIXEL_SCALE
 
-    spatial_dir = summary_dir / "spatial"
+    spatial_dir = summary_dir
     spatial_dir.mkdir(parents=True, exist_ok=True)
 
     keep_tags = {k: src_tags[k]
