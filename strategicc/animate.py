@@ -1,5 +1,5 @@
 """
-strategicc/animate.py  —  v3.5
+strategicc/animate.py  —  v3.8
 ---------------------------------
 Standalone animation function. Produces a two-panel GIF/MP4:
   - LEFT panel  : modal LULC map per timestep
@@ -47,7 +47,7 @@ def _load_modal_frames(
     years:       list[int],
 ) -> dict[int, np.ndarray]:
     """Load lulc_mean_YYYY.tif for each requested year."""
-    spatial_dir = summary_dir / "spatial"
+    spatial_dir = summary_dir
     frames: dict[int, np.ndarray] = {}
     for year in years:
         tif = spatial_dir / f"lulc_mean_{year}.tif"
@@ -183,7 +183,7 @@ def animate(
 
     out_dir     = Path(out_dir)
     summary_dir = out_dir / "summary"
-    spatial_dir = summary_dir / "spatial"
+    spatial_dir = summary_dir
 
     from strategicc.io.csv_loader import load_state_classes
     import strategicc.config as cfg
