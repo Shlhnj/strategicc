@@ -1,5 +1,5 @@
 """
-tests/test_calibration.py  —  v2.4
+tests/test_calibration.py  —  v3.8
 Unit tests for the calibration module (age, transitions, temporal distribution).
 """
 
@@ -13,10 +13,10 @@ from rasterio.transform import from_origin
 
 from strategicc.calibration import (
     load_lulc_timeseries, compute_age_raster, compute_transition_rates,
-    compute_temporal_distribution,
+    compute_temporal_distribution, compute_size_distribution,
 )
 from strategicc.calibration.transitions import compute_yearly_transition_counts
-from strategicc.io.csv_loader import StateClass
+from strategicc.io.csv_loader import StateClass, load_transition_size_rules, group_size_bins
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -63,6 +63,59 @@ def synthetic_zip(tmp_path_factory):
 def loaded_ts(synthetic_zip, tmp_path_factory):
     extract_dir = tmp_path_factory.mktemp("extracted")
     return load_lulc_timeseries(synthetic_zip, extract_dir=extract_dir)
+
+
+@pytest.fixture(scope="module")
+def clustered_zip(tmp_path_factory):
+    """
+    Build a 40x40, 8-year synthetic LULC zip where class 1 -> class 2
+    conversions happen in spatially clustered blocks (not independent
+    scattered pixels) — needed to exercise patch labeling meaningfully.
+    """
+    tmp_dir = tmp_path_factory.mktemp("clustered")
+    rows, cols = 40, 40
+    years = list(range(2015, 2023))
+
+    transform = from_origin(110.0, -7.0, 0.0001, 0.0001)
+    profile = {
+        "driver": "GTiff", "dtype": "uint8", "count": 1,
+        "height": rows, "width": cols,
+        "crs": "EPSG:4326", "transform": transform,
+    }
+
+    rng = np.random.default_rng(3)
+    current = np.ones((rows, cols), dtype=np.uint8)
+    current[:, 20:] = 2
+
+    for i, yr in enumerate(years):
+        if i > 0:
+            mask = (current == 1)
+            seeds_r = rng.integers(0, rows, size=3)
+            seeds_c = rng.integers(0, 20, size=3)
+            for sr, sc in zip(seeds_r, seeds_c):
+                size = rng.integers(2, 6)
+                r0, r1 = max(0, sr - size), sr + size
+                c0, c1 = max(0, sc - size), sc + size
+                block = current[r0:r1, c0:c1]
+                block_mask = mask[r0:r1, c0:c1]
+                block[block_mask] = 2
+
+        path = tmp_dir / f"{yr}.tif"
+        with rasterio.open(str(path), "w", **profile) as dst:
+            dst.write(current, 1)
+
+    zip_path = tmp_dir / "clustered.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for yr in years:
+            zf.write(tmp_dir / f"{yr}.tif", arcname=f"{yr}.tif")
+
+    return zip_path
+
+
+@pytest.fixture(scope="module")
+def clustered_ts(clustered_zip, tmp_path_factory):
+    extract_dir = tmp_path_factory.mktemp("clustered_extracted")
+    return load_lulc_timeseries(clustered_zip, extract_dir=extract_dir)
 
 
 @pytest.fixture
@@ -190,3 +243,95 @@ def test_temporal_distribution_insufficient_years(loaded_ts, group_map):
     yearly = compute_yearly_transition_counts(loaded_ts)
     df = compute_temporal_distribution(yearly, group_map, min_years=100)
     assert df.empty
+
+
+# ── Tests: size distribution ─────────────────────────────────────────────────
+
+PX_AREA_HA = 0.0001 * 0.0001 * 111000 * 111000 / 10000  # deg^2 -> ha at equator
+
+
+def test_compute_size_distribution_schema(clustered_ts, group_map):
+    df = compute_size_distribution(
+        clustered_ts, group_map, px_area_ha=PX_AREA_HA, n_bins=4, min_patches=3,
+    )
+    assert not df.empty
+    assert list(df.columns) == [
+        "Transition Type/Group", "Maximum Area (Hectares)", "Relative Amount",
+    ]
+    assert (df["Transition Type/Group"] == "Mangrove_recruitment [Type]").all()
+
+
+def test_compute_size_distribution_bins_ascending(clustered_ts, group_map):
+    df = compute_size_distribution(
+        clustered_ts, group_map, px_area_ha=PX_AREA_HA, n_bins=4, min_patches=3,
+    )
+    areas = df["Maximum Area (Hectares)"].tolist()
+    assert areas == sorted(areas)
+    assert len(areas) == len(set(areas))   # strictly ascending, no duplicate bins
+
+
+def test_compute_size_distribution_relative_amount_sums_to_100(clustered_ts, group_map):
+    df = compute_size_distribution(
+        clustered_ts, group_map, px_area_ha=PX_AREA_HA, n_bins=4, min_patches=3,
+    )
+    total = df["Relative Amount"].sum()
+    assert total == pytest.approx(100.0, abs=1e-6)
+
+
+def test_compute_size_distribution_insufficient_patches(clustered_ts, group_map):
+    df = compute_size_distribution(
+        clustered_ts, group_map, px_area_ha=PX_AREA_HA, n_bins=4, min_patches=10_000,
+    )
+    assert df.empty
+
+
+def test_compute_size_distribution_invalid_connectivity(clustered_ts, group_map):
+    with pytest.raises(ValueError):
+        compute_size_distribution(
+            clustered_ts, group_map, px_area_ha=PX_AREA_HA, connectivity=6,
+        )
+
+
+def test_compute_size_distribution_roundtrip_through_loader(clustered_ts, group_map, tmp_path):
+    """
+    Derived output must parse cleanly through the SAME loader the engine
+    uses (load_transition_size_rules + group_size_bins), producing valid
+    cumulative (min, max, probability) bins summing to ~1.0 per group —
+    this is the contract strategicc.core.patches.sample_patch_size_ha()
+    depends on.
+    """
+    df = compute_size_distribution(
+        clustered_ts, group_map, px_area_ha=PX_AREA_HA, n_bins=4, min_patches=3,
+    )
+    out_path = tmp_path / "TransitionSizeDistribution.csv"
+    df.to_csv(out_path, index=False)
+
+    rules = load_transition_size_rules(out_path)
+    bins = group_size_bins(rules)
+
+    assert "Mangrove_recruitment" in bins
+    group_bins = bins["Mangrove_recruitment"]
+
+    # bins are contiguous: each bin's min == previous bin's max
+    for (prev_min, prev_max, _), (this_min, this_max, _) in zip(group_bins, group_bins[1:]):
+        assert this_min == prev_max
+
+    total_prob = sum(p for _, _, p in group_bins)
+    assert total_prob == pytest.approx(1.0, abs=1e-6)
+
+
+def test_compute_size_distribution_group_map_shared_with_transitions(clustered_ts, group_map):
+    """
+    Sanity check that the SAME group_map used for compute_transition_rates()
+    / compute_temporal_distribution() produces a consistent group label
+    here too (no separate grouping scheme — per design decision).
+    """
+    yearly = compute_yearly_transition_counts(clustered_ts)
+    temporal_df = compute_temporal_distribution(yearly, group_map, min_years=2)
+    size_df = compute_size_distribution(
+        clustered_ts, group_map, px_area_ha=PX_AREA_HA, n_bins=4, min_patches=3,
+    )
+
+    temporal_group = temporal_df.iloc[0]["TransitionGroupId"].replace(" [Type]", "")
+    size_group = size_df.iloc[0]["Transition Type/Group"].replace(" [Type]", "")
+    assert temporal_group == size_group == "Mangrove_recruitment"
