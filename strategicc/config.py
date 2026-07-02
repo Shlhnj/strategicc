@@ -30,6 +30,10 @@ STATE_CLASSES_CSV        = Path("inputs/StateClasses.csv")
 TRANSITIONS_CSV          = Path("inputs/Transitions.csv")
 SPATIAL_MULT_CSV         = Path("inputs/TransitionSpatialMultipliers.csv")
 TRANSITION_MULT_CSV      = Path("inputs/TransitionMultipliers.csv")
+# Named empirical distributions (v3.6.1) referenced by TransitionMultipliers.csv's
+# DistributionType column when it isn't the literal string "Uniform". Optional —
+# if the file isn't present, only literal Uniform(min,max) multiplier rows work.
+DISTRIBUTIONS_CSV        = Path("inputs/Distributions.csv")
 TRANSITION_TYPE_CSV      = Path("inputs/TransitionType.csv")
 
 ECOSYSTEM_SERVICES_CSV   = Path("inputs/EcosystemServices.csv")
@@ -172,6 +176,7 @@ _MANIFEST_SCHEMA: dict[str, tuple[str, str]] = {
     "TRANSITIONS_CSV":                    ("TRANSITIONS_CSV", "path"),
     "SPATIAL_MULT_CSV":                   ("SPATIAL_MULT_CSV", "path"),
     "TRANSITION_MULT_CSV":                ("TRANSITION_MULT_CSV", "path"),
+    "DISTRIBUTIONS_CSV":                  ("DISTRIBUTIONS_CSV", "path"),
     "TRANSITION_TYPE_CSV":                ("TRANSITION_TYPE_CSV", "path"),
     "ECOSYSTEM_SERVICES_CSV":             ("ECOSYSTEM_SERVICES_CSV", "path"),
     "AGE_INITIAL_CSV":                    ("AGE_INITIAL_CSV", "path"),

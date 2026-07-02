@@ -27,6 +27,7 @@ from strategicc.io.csv_loader import (
     load_transitions,
     load_spatial_mult_index,
     load_transition_multipliers,
+    load_distributions,
     load_initial_age_rules,
     load_transition_size_rules,
     group_size_bins,
@@ -113,6 +114,7 @@ class StrategiccEngine:
         transition_adjacency_setting_csv = None,    # v3.1 Path | None
         transition_adjacency_mult_csv    = None,    # v3.1 Path | None
         use_stockflow:        bool = False,   # v3.2
+        distributions_csv     = None,         # v3.6.1 Path | None
     ) -> None:
         self.lulc_path               = Path(lulc_path)
         self.state_classes_csv       = Path(state_classes_csv)
@@ -144,6 +146,9 @@ class StrategiccEngine:
             Path(transition_adjacency_mult_csv) if transition_adjacency_mult_csv else None
         )  # v3.1
         self.use_stockflow = use_stockflow   # v3.2
+        self.distributions_csv = (
+            Path(distributions_csv) if distributions_csv else None
+        )  # v3.6.1
 
         # Populated by load() — Stock & Flow (v3.2)
         self._stock_types:       list  = []
@@ -158,6 +163,7 @@ class StrategiccEngine:
         self.trans_index:         dict  = {}
         self.spatial_mults:       dict  = {}
         self.trans_mult_rules:    list  = []
+        self.distributions:       dict  = {}   # v3.6.1 — {name: DistributionEntry}
         self.ecosystem_services:  list  = []
         self.src_tags:            dict  = {}
         self._crs_info = None   # v3.6 — set in load()
@@ -207,6 +213,7 @@ class StrategiccEngine:
             transition_adjacency_setting_csv = config.TRANSITION_ADJACENCY_SETTING_CSV,
             transition_adjacency_mult_csv    = config.TRANSITION_ADJACENCY_MULT_CSV,
             use_stockflow           = config.USE_STOCKFLOW,
+            distributions_csv       = getattr(config, "DISTRIBUTIONS_CSV", None),
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -271,6 +278,34 @@ class StrategiccEngine:
         if self.use_trans_multiplier and self.trans_mult_csv.exists():
             self.trans_mult_rules = load_transition_multipliers(self.trans_mult_csv)
             describe_multiplier_rules(self.trans_mult_rules)
+
+            # v3.6.1 — named (non-"Uniform") DistributionType values are
+            # resolved against Distributions.csv at sample time. Load it
+            # eagerly here so a missing/misconfigured file surfaces now,
+            # rather than as a ValueError mid-run on iteration 1.
+            named_rules = [
+                r for r in self.trans_mult_rules
+                if r.distribution.strip().lower() != "uniform"
+            ]
+            if named_rules:
+                if self.distributions_csv and self.distributions_csv.exists():
+                    self.distributions = load_distributions(self.distributions_csv)
+                    missing = sorted({
+                        r.distribution for r in named_rules
+                        if r.distribution not in self.distributions
+                    })
+                    if missing:
+                        print(f"  [Warning] {len(missing)} DistributionType(s) "
+                              f"referenced in {self.trans_mult_csv} were not "
+                              f"found in {self.distributions_csv}: {missing}. "
+                              "Sampling for these groups will fail at run time.")
+                else:
+                    names = sorted({r.distribution for r in named_rules})
+                    print(f"  [Warning] {len(named_rules)} multiplier rule(s) "
+                          f"use named DistributionType(s) {names} but "
+                          f"DISTRIBUTIONS_CSV is not set or not found "
+                          f"({self.distributions_csv}). Sampling for these "
+                          "groups will fail at run time unless this is fixed.")
         elif self.use_trans_multiplier:
             print(f"  [Warning] {self.trans_mult_csv} not found — "
                   "USE_TRANS_MULTIPLIER set to False")
@@ -588,7 +623,7 @@ class StrategiccEngine:
             group_mults: dict[str, float] = {}
             if self.use_trans_multiplier and self.trans_mult_rules:
                 group_mults = sample_transition_multipliers(
-                    self.trans_mult_rules, rng
+                    self.trans_mult_rules, rng, self.distributions
                 )
 
             draws = rng.random(shape)
