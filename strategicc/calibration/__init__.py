@@ -1,5 +1,5 @@
 """
-strategicc/calibration  —  v3.4
+strategicc/calibration  —  v3.8
 ---------------------------------
 Tools to derive STRATEGICC inputs from a historical LULC time series
 (supplied as a zip of yearly GeoTIFFs).
@@ -9,6 +9,8 @@ Modules
 loader        — extract + load a zip of yearly LULC rasters into a stack
 age           — backtrack continuous (or binned) age-since-transition per class
 transitions   — derive mean annual transition probabilities (Transitions.csv)
+                and historical patch-size distributions
+                (TransitionSizeDistribution.csv)
 temporal      — derive year-by-year multiplier distribution (TransitionMultipliers.csv)
 
 These tools require the optional `rasterio` dependency:
@@ -24,6 +26,8 @@ from .transitions import (
     compute_yearly_transition_counts,
     compute_transition_rates,
     save_transitions_csv,
+    compute_size_distribution,
+    save_size_distribution_csv,
 )
 from .temporal import compute_temporal_distribution, save_temporal_distribution_csv
 
@@ -39,4 +43,6 @@ __all__ = [
     "save_transitions_csv",
     "compute_temporal_distribution",
     "save_temporal_distribution_csv",
+    "compute_size_distribution",
+    "save_size_distribution_csv",
 ]
