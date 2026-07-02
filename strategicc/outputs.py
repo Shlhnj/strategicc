@@ -451,7 +451,7 @@ def plot_spatial_summary(
     initial_lulc : uint8 array from read_lulc() — the original t=0 raster
     modal_maps   : dict year → modal array, from aggregate_spatial()
     """
-    spatial_dir = summary_dir / "spatial"
+    spatial_dir = summary_dir
     spatial_dir.mkdir(parents=True, exist_ok=True)
 
     cmap   = _build_cmap(classes)
