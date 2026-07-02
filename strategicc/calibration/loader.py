@@ -1,5 +1,5 @@
 """
-strategicc/calibration/loader.py  —  v2.4
+strategicc/calibration/loader.py  —  v3.8
 --------------------------------------------
 Extract a zip of yearly LULC GeoTIFFs and build an annual raster stack.
 
@@ -27,13 +27,19 @@ from pathlib import Path
 
 import numpy as np
 
-try:
-    import rasterio
-except ImportError as e:
-    raise ImportError(
-        "strategicc.calibration requires rasterio. "
-        "Install with: pip install rasterio"
-    ) from e
+
+def _require_rasterio():
+    """Import rasterio lazily — only when a calibration function that
+    actually needs it is called, not merely when strategicc.calibration
+    is imported. Keeps compute_size_distribution() and other rasterio-free
+    calibration functions usable without rasterio installed."""
+    try:
+        import rasterio
+        return rasterio
+    except ImportError as e:
+        raise ImportError(
+            "This function requires rasterio. Install with: pip install rasterio"
+        ) from e
 
 
 _YEAR_PATTERN = re.compile(r"(19|20)\d{2}")
@@ -139,6 +145,7 @@ def load_lulc_timeseries(
     -------
     LULCTimeSeries
     """
+    rasterio = _require_rasterio()
     tif_dir = _extract_zip(zip_path, extract_dir)
 
     profile = None
