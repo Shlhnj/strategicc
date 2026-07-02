@@ -19,7 +19,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy import stats as scipy_stats
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -395,6 +394,7 @@ def aggregate_spatial(
         cube = np.stack(stack, axis=0)   # (n_iter, rows, cols)
 
         # ── Modal class (most frequent per cell) ──────────────────────────
+        from scipy import stats as scipy_stats
         mode_result = scipy_stats.mode(cube, axis=0, keepdims=False)
         modal = mode_result.mode.astype(np.uint8)
         modal_maps[year] = modal
