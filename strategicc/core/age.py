@@ -1,5 +1,5 @@
 """
-strategicc/core/age.py  —  v2.3
+strategicc/core/age.py  —  v3.8
 ---------------------------------
 Age tracking for the simulation engine.
 
@@ -22,7 +22,6 @@ Age reset behaviour (matches ST-Sim):
 
 from __future__ import annotations
 import numpy as np
-from scipy import stats as scipy_stats
 from strategicc.io.csv_loader import InitialAgeRule
 from strategicc.io.raster import get_crs_info, CRSInfo
 
@@ -124,6 +123,7 @@ def build_initial_age_from_rules(
 
         if rule.age_sd > 0:
             # Truncated normal: clip to [age_min, age_max]
+            from scipy import stats as scipy_stats
             a = (rule.age_min - rule.age_mean) / rule.age_sd
             b = (rule.age_max - rule.age_mean) / rule.age_sd
             samples = scipy_stats.truncnorm.rvs(
