@@ -1,5 +1,5 @@
 """
-strategicc/calibration  —  v3.8
+strategicc/calibration  —  v3.9
 ---------------------------------
 Tools to derive STRATEGICC inputs from a historical LULC time series
 (supplied as a zip of yearly GeoTIFFs).
@@ -30,6 +30,8 @@ from .transitions import (
     save_size_distribution_csv,
 )
 from .temporal import compute_temporal_distribution, save_temporal_distribution_csv
+from .manifest import save_calibration_manifest
+from .report import calibration_summary
 
 __all__ = [
     "load_lulc_timeseries",
@@ -45,4 +47,6 @@ __all__ = [
     "save_temporal_distribution_csv",
     "compute_size_distribution",
     "save_size_distribution_csv",
+    "save_calibration_manifest",
+    "calibration_summary",
 ]
