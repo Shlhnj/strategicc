@@ -1,5 +1,5 @@
 """
-strategicc/calibration/paths.py  —  v3.8
+strategicc/calibration/paths.py  —  v3.10
 ------------------------------------------
 Predefined output paths for all calibration artefacts.
 
@@ -20,5 +20,6 @@ CALIBRATION_DIR = Path("calibration_result")
 TRANSITIONS_CSV     = CALIBRATION_DIR / "Transitions.csv"
 TRANS_MULT_CSV      = CALIBRATION_DIR / "TransitionMultipliers.csv"
 TRANS_SIZE_CSV      = CALIBRATION_DIR / "TransitionSizeDistribution.csv"
+TRANS_DIST_CSV      = CALIBRATION_DIR / "Distributions.csv"
 AGE_RASTER          = CALIBRATION_DIR / "age.tif"
 RUN_MANIFEST        = CALIBRATION_DIR / "RunManifest_calibrated.txt"
