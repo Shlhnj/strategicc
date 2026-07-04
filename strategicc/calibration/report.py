@@ -1,12 +1,12 @@
 """
-strategicc/calibration/report.py  —  v3.8
+strategicc/calibration/report.py  v3.10
 -------------------------------------------
 Calibration result summary: printed table, age raster map,
 age histogram, and returned dict for programmatic access.
 
 Functions
 ---------
-calibration_summary  — display full calibration result after a run
+calibration_summary: display full calibration result after a run
 """
 
 from __future__ import annotations
@@ -46,16 +46,18 @@ def _fmt_prob(series: pd.Series) -> str:
 # ── main function ─────────────────────────────────────────────────────────────
 
 def calibration_summary(
-    transitions_df:    pd.DataFrame | None = None,
-    temporal_df:       pd.DataFrame | None = None,
-    size_dist_df:      pd.DataFrame | None = None,
-    age_result:        AgeRasterResult | None = None,
-    transitions_path:  Path | None = None,
-    temporal_path:     Path | None = None,
-    size_dist_path:    Path | None = None,
-    age_raster_path:   Path | None = None,
-    manifest_path:     Path | None = None,
-    plot_out:          Path | None = None,
+    transitions_df:      pd.DataFrame | None = None,
+    temporal_df:         pd.DataFrame | None = None,
+    distributions_df:    pd.DataFrame | None = None,
+    size_dist_df:        pd.DataFrame | None = None,
+    age_result:          AgeRasterResult | None = None,
+    transitions_path:    Path | None = None,
+    temporal_path:       Path | None = None,
+    distributions_path:  Path | None = None,
+    size_dist_path:      Path | None = None,
+    age_raster_path:     Path | None = None,
+    manifest_path:       Path | None = None,
+    plot_out:            Path | None = None,
 ) -> dict:
     """
     Print a calibration run summary, plot the age raster and histogram,
@@ -63,22 +65,25 @@ def calibration_summary(
 
     Parameters
     ----------
-    transitions_df   : DataFrame from compute_transition_rates()
-    temporal_df      : DataFrame from compute_temporal_distribution()
-    size_dist_df     : DataFrame from compute_size_distribution()
-    age_result       : AgeRasterResult from compute_age_raster()
-    transitions_path : path where Transitions.csv was saved
-    temporal_path    : path where TransitionMultipliers.csv was saved
-    size_dist_path   : path where TransitionSizeDistribution.csv was saved
-    age_raster_path  : path where age.tif was saved
-    manifest_path    : path where RunManifest_calibrated.txt was saved
-    plot_out         : destination for the summary plot PNG;
-                       defaults to calibration_result/calibration_summary.png
+    transitions_df     : DataFrame from compute_transition_rates()
+    temporal_df        : temporal_df from compute_temporal_distribution()
+    distributions_df   : distributions_df from compute_temporal_distribution()
+    size_dist_df       : DataFrame from compute_size_distribution()
+    age_result         : AgeRasterResult from compute_age_raster()
+    transitions_path   : path where Transitions.csv was saved
+    temporal_path      : path where TransitionMultipliers.csv was saved
+    distributions_path : path where Distributions.csv was saved
+    size_dist_path     : path where TransitionSizeDistribution.csv was saved
+    age_raster_path    : path where age.tif was saved
+    manifest_path      : path where RunManifest_calibrated.txt was saved
+    plot_out           : destination for the summary plot PNG;
+                         defaults to calibration_result/calibration_summary.png
 
     Returns
     -------
     dict with keys:
-        transitions, temporal, size_distribution, age, manifest, plot_path
+        transitions, temporal, distributions, size_distribution, age,
+        manifest, plot_path
     """
     from strategicc.calibration.paths import CALIBRATION_DIR
 
@@ -90,6 +95,7 @@ def calibration_summary(
     result: dict = {
         "transitions":      None,
         "temporal":         None,
+        "distributions":    None,
         "size_distribution": None,
         "age":              None,
         "manifest":         None,
@@ -133,6 +139,21 @@ def calibration_summary(
         }
     else:
         print(_cross("TransitionMultipliers.csv", "not calibrated"))
+
+    # Distributions.csv
+    if distributions_df is not None and not distributions_df.empty:
+        n_dists = distributions_df["DistributionTypeId"].nunique()
+        n_rows  = len(distributions_df)
+        print(_tick("Distributions.csv",
+                    f"{n_dists} named distribution(s)  {n_rows} value row(s)"))
+        result["distributions"] = {
+            "n_distributions": n_dists,
+            "n_rows":          n_rows,
+            "path":            str(distributions_path) if distributions_path else None,
+            "data":            distributions_df,
+        }
+    else:
+        print(_cross("Distributions.csv", "not calibrated"))
 
     # TransitionSizeDistribution.csv
     if size_dist_df is not None and not size_dist_df.empty:
@@ -321,7 +342,7 @@ def _plot_calibration_summary(
         ax.set_yticks(y)
         ax.set_yticklabels(grps, fontsize=8)
         ax.set_xlabel("Temporal multiplier", fontsize=9)
-        ax.set_title("Temporal Multiplier Range (Uniform distribution)",
+        ax.set_title("Temporal Multiplier Range (empirical distribution)",
                      fontsize=10, fontweight="bold")
         ax.legend(fontsize=8)
         ax.grid(True, axis="x", alpha=0.25)
