@@ -1,5 +1,5 @@
 """
-strategicc/calibration  —  v3.9
+strategicc/calibration  v3.10
 ---------------------------------
 Tools to derive STRATEGICC inputs from a historical LULC time series
 (supplied as a zip of yearly GeoTIFFs).
@@ -11,7 +11,10 @@ age           — backtrack continuous (or binned) age-since-transition per clas
 transitions   — derive mean annual transition probabilities (Transitions.csv)
                 and historical patch-size distributions
                 (TransitionSizeDistribution.csv)
-temporal      — derive year-by-year multiplier distribution (TransitionMultipliers.csv)
+temporal      — derive per-pathway empirical multiplier distributions,
+                emitting both TransitionMultipliers.csv (named
+                DistributionType references) and Distributions.csv (the
+                empirical value/frequency tables those names resolve to)
 
 These tools require the optional `rasterio` dependency:
     pip install rasterio
@@ -29,7 +32,11 @@ from .transitions import (
     compute_size_distribution,
     save_size_distribution_csv,
 )
-from .temporal import compute_temporal_distribution, save_temporal_distribution_csv
+from .temporal import (
+    compute_temporal_distribution,
+    save_temporal_distribution_csv,
+    save_distributions_csv,
+)
 from .manifest import save_calibration_manifest
 from .report import calibration_summary
 
@@ -45,6 +52,7 @@ __all__ = [
     "save_transitions_csv",
     "compute_temporal_distribution",
     "save_temporal_distribution_csv",
+    "save_distributions_csv",
     "compute_size_distribution",
     "save_size_distribution_csv",
     "save_calibration_manifest",
