@@ -1,5 +1,5 @@
 """
-tests/test_seea_stockflow.py  —  v3.11
+tests/test_seea_stockflow.py - v3.11
 Unit tests for Mode C (stock_flow-linked) SEEA-EA valuation and the
 stockflow aggregation module.
 """
