@@ -1,5 +1,5 @@
 """
-strategicc/stockflow/aggregation.py  —  v3.2
+strategicc/stockflow/aggregation.py -- v3.11
 -------------------------------------------------
 Aggregates per-iteration Stock & Flow outputs across iterations and by
 state class, producing per-class-per-year stock and flow totals suitable
@@ -10,9 +10,14 @@ compute the per-cell MEDIAN across iterations, mask by the modal LULC
 class for that timestep, sum within each class's cells.
 
 Flow totals are aggregated from flow_log.csv (median total per flow_type
-per year across iterations) — flows are scalar aggregates already, not
+per year across iterations) -- flows are scalar aggregates already, not
 per-cell rasters, so no class masking is needed (eligibility was already
 class-gated by the engine at simulation time via FromStateClassId).
+
+v3.11: aggregate_flow_by_class() now tolerates an empty-but-present
+flow_log_by_class.csv (written unconditionally by engine._save_flow_log()
+for any iteration with no by_class records) instead of crashing on
+pd.errors.EmptyDataError.
 """
 
 from __future__ import annotations
@@ -95,7 +100,13 @@ def aggregate_flow_by_class(
     for d in iter_dirs:
         log_path = d / "flow_log_by_class.csv"
         if log_path.exists():
-            df = pd.read_csv(log_path)
+            try:
+                df = pd.read_csv(log_path)
+            except pd.errors.EmptyDataError:
+                # An iteration with no by_class flow records writes a
+                # zero-column/empty file (engine._save_flow_log() always
+                # writes it unconditionally) -- skip rather than crash.
+                continue
             if not df.empty:
                 frames.append(df)
 
@@ -269,7 +280,7 @@ def build_asset_account(
                 })
 
                 # Next year's opening = THIS year's reconciled closing
-                # (standard SEEA-EA rollforward — using the reconciled
+                # (standard SEEA-EA rollforward -- using the reconciled
                 # value, not the actual, keeps the account internally
                 # consistent year over year even though actual stock
                 # totals are reported alongside for validation)
