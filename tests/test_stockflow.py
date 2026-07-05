@@ -1,389 +1,484 @@
 """
-tests/test_stockflow.py  —  v3.2
-Unit tests for the Stock & Flow engine (strategicc/stockflow/).
-
-Validated against Alongi (2020) mangrove carbon mass-balance reference
-values where applicable (NPP ~18.4 Mg C/ha/yr combined AGB+BGB).
+tests/test_seea_stockflow.py  —  v3.11
+Unit tests for Mode C (stock_flow-linked) SEEA-EA valuation and the
+stockflow aggregation module.
 """
 
 import pytest
 import numpy as np
+import pandas as pd
 
-from strategicc.stockflow.csv_loader import (
-    FlowPathwayRule, StateAttributeValueRule, lookup_state_attribute,
-    load_flow_pathways,
-)
-from strategicc.stockflow.engine import (
-    init_stocks, run_flows_for_timestep, build_age_attribute_cache,
-)
+from strategicc.accounting.csv_loader import EcosystemService, load_ecosystem_services
+from strategicc.accounting.seea import SEEAAccount
 from strategicc.io.csv_loader import StateClass
-from strategicc.core.transitions import TransitionRecord
+from strategicc.stockflow.aggregation import (
+    aggregate_stock_by_class, aggregate_flow_by_class, aggregate_flow_by_type,
+)
 
 
-# ── lookup_state_attribute ────────────────────────────────────────────────────
+# ── EcosystemService Mode C parsing ───────────────────────────────────────────
 
-def test_lookup_state_attribute_basic():
-    rules = [StateAttributeValueRule("NPP", None, None, None, 18.4)]
-    assert lookup_state_attribute(rules, "NPP", age=10) == 18.4
+def test_ecosystem_service_stockflow_kind_and_type():
+    svc = EcosystemService(
+        "Mangrove", "Carbon Seq", "Regulating", 75000, "IDR",
+        "MgC", None, stockflow_source="flow:NPP",
+    )
+    assert svc.has_stockflow_source
+    assert svc.stockflow_kind == "flow"
+    assert svc.stockflow_type_name == "NPP"
 
-def test_lookup_state_attribute_age_brackets():
-    rules = [
-        StateAttributeValueRule("NPP", None, 0, 10, 5.0),
-        StateAttributeValueRule("NPP", None, 11, 20, 8.0),
-        StateAttributeValueRule("NPP", None, 21, None, 12.0),
-    ]
-    assert lookup_state_attribute(rules, "NPP", age=5) == 5.0
-    assert lookup_state_attribute(rules, "NPP", age=15) == 8.0
-    assert lookup_state_attribute(rules, "NPP", age=50) == 12.0
+def test_ecosystem_service_stock_kind():
+    svc = EcosystemService(
+        "Mangrove", "Carbon Storage", "Regulating", 75000, "IDR",
+        "MgC", None, stockflow_source="stock:Biomass",
+    )
+    assert svc.stockflow_kind == "stock"
+    assert svc.stockflow_type_name == "Biomass"
 
-def test_lookup_state_attribute_no_match_returns_none():
-    rules = [StateAttributeValueRule("NPP", None, 0, 10, 5.0)]
-    assert lookup_state_attribute(rules, "NPP", age=99) is None
+def test_ecosystem_service_no_stockflow_source():
+    svc = EcosystemService("Mangrove", "Tourism", "Cultural", 5000, "IDR", None, None)
+    assert not svc.has_stockflow_source
+    assert svc.stockflow_kind is None
+    assert svc.stockflow_type_name is None
 
-def test_lookup_state_attribute_class_specific_wins_over_wildcard():
-    rules = [
-        StateAttributeValueRule("NPP", None, None, None, 5.0),
-        StateAttributeValueRule("NPP", "Mangrove", None, None, 18.4),
-    ]
-    assert lookup_state_attribute(rules, "NPP", age=10, state_class="Mangrove") == 18.4
-    assert lookup_state_attribute(rules, "NPP", age=10, state_class="Other") == 5.0
-
-
-# ── build_age_attribute_cache ────────────────────────────────────────────────
-
-def test_build_age_attribute_cache_vectorised():
-    age_map = np.array([[10, 20], [30, 10]], dtype=np.uint16)
-    rules = [StateAttributeValueRule("NPP", None, None, None, 18.4)]
-    cache = build_age_attribute_cache(age_map, rules, "NPP")
-    assert np.all(cache == 18.4)
-    assert cache.shape == age_map.shape
-
-def test_build_age_attribute_cache_unmatched_age_is_zero():
-    age_map = np.array([[5]], dtype=np.uint16)
-    rules = [StateAttributeValueRule("NPP", None, 10, 20, 18.4)]
-    cache = build_age_attribute_cache(age_map, rules, "NPP")
-    assert cache[0, 0] == 0.0
-
-
-# ── load_flow_pathways: column-shift regression test ─────────────────────────
-
-def test_load_flow_pathways_correct_column_alignment(tmp_path):
-    """
-    Regression test: real Flow Pathways rows have an empty StateClassId
-    field between source class and stock-type columns. A naive
-    hand-written CSV with too few commas silently shifts every
-    subsequent field by one column — this caught real bugs during
-    development and must never regress.
-    """
-    p = tmp_path / "fp.csv"
+def test_load_ecosystem_services_mode_c(tmp_path):
+    p = tmp_path / "EcosystemServices.csv"
     p.write_text(
-        "Iteration,Timestep,FromStratumId,FromSecondaryStratumId,FromTertiaryStratumId,"
-        "FromStateClassId,FromAgeMin,FromStockTypeId,ToStratumId,ToStateClassId,ToAgeMin,"
-        "ToStockTypeId,TransitionGroupId,StateAttributeTypeId,FlowTypeId,TargetType,"
-        "Multiplier,TransferToStratumId,TransferToSecondaryStratumId,"
-        "TransferToTertiaryStratumId,TransferToStateClassId,TransferToAgeMin\n"
-        ",,,,,,,Atmosphere,,,,Biomass,,NPP,NPP,,1,,,,,\n"
+        "StateClassId,ServiceName,ServiceType,ValuePerUnitArea,Currency,"
+        "PhysicalUnit,PhysicalValuePerUnitArea,StockFlowSource\n"
+        "Mangrove,Carbon Sequestration,Regulating,75000,IDR,MgC,,flow:NPP\n"
     )
-    rules = load_flow_pathways(p)
-    assert len(rules) == 1
-    assert rules[0].from_stock_type == "Atmosphere"
-    assert rules[0].to_stock_type == "Biomass"
-    assert rules[0].flow_type == "NPP"
-    assert rules[0].state_attribute == "NPP"
-    assert rules[0].multiplier == 1.0
-    assert rules[0].transition_group is None
+    services = load_ecosystem_services(p)
+    assert len(services) == 1
+    assert services[0].has_stockflow_source
+    assert services[0].stockflow_kind == "flow"
+    assert services[0].stockflow_type_name == "NPP"
+    assert services[0].physical_per_unit_area is None
 
-def test_load_flow_pathways_transition_triggered(tmp_path):
-    p = tmp_path / "fp.csv"
+def test_load_ecosystem_services_legacy_column_names_still_work(tmp_path, capsys):
+    """Old ValuePerHa/PhysicalValuePerHa headers (pre-v3.3) still parse."""
+    p = tmp_path / "EcosystemServices.csv"
     p.write_text(
-        "Iteration,Timestep,FromStratumId,FromSecondaryStratumId,FromTertiaryStratumId,"
-        "FromStateClassId,FromAgeMin,FromStockTypeId,ToStratumId,ToStateClassId,ToAgeMin,"
-        "ToStockTypeId,TransitionGroupId,StateAttributeTypeId,FlowTypeId,TargetType,"
-        "Multiplier,TransferToStratumId,TransferToSecondaryStratumId,"
-        "TransferToTertiaryStratumId,TransferToStateClassId,TransferToAgeMin\n"
-        ",,,,,,,Biomass,,,,Atmosphere,Aquaculture_expansion [Type],,Emission,,0.1,,,,,\n"
+        "StateClassId,ServiceName,ServiceType,ValuePerHa,Currency,"
+        "PhysicalUnit,PhysicalValuePerHa\n"
+        "Mangrove,Carbon,Regulating,75000,IDR,MgC/ha,1300\n"
     )
-    rules = load_flow_pathways(p)
-    assert len(rules) == 1
-    assert rules[0].transition_group == "Aquaculture_expansion"
-    assert rules[0].multiplier == 0.1
+    services = load_ecosystem_services(p)
+    assert len(services) == 1
+    assert services[0].value_per_unit_area == 75000
+    assert services[0].physical_per_unit_area == 1300
+    captured = capsys.readouterr()
+    assert "legacy column" in captured.out
 
-
-# ── init_stocks ───────────────────────────────────────────────────────────────
-
-def test_init_stocks_unlinked_starts_at_zero():
-    stocks = init_stocks(
-        stock_types=["Biomass"], shape=(3, 3),
-        initial_links={}, state_attr_rules=[], age_map=None,
+def test_load_ecosystem_services_intermediate_v33_column_names_still_work(tmp_path, capsys):
+    """Short-lived v3.3 ValuePerUnit/PhysicalValuePerUnit headers still parse."""
+    p = tmp_path / "EcosystemServices.csv"
+    p.write_text(
+        "StateClassId,ServiceName,ServiceType,ValuePerUnit,Currency,"
+        "PhysicalUnit,PhysicalValuePerUnit\n"
+        "Mangrove,Carbon,Regulating,75000,IDR,MgC/ha,1300\n"
     )
-    assert np.all(stocks["Biomass"] == 0)
+    services = load_ecosystem_services(p)
+    assert len(services) == 1
+    assert services[0].value_per_unit_area == 75000
+    assert services[0].physical_per_unit_area == 1300
+    captured = capsys.readouterr()
+    assert "legacy column" in captured.out
 
-def test_init_stocks_linked_uses_state_attribute():
-    rules = [StateAttributeValueRule("Initial_biomass_carbon", None, None, None, 50.0)]
-    stocks = init_stocks(
-        stock_types=["Biomass"], shape=(2, 2),
-        initial_links={"Biomass": "Initial_biomass_carbon"},
-        state_attr_rules=rules, age_map=None,
+def test_load_ecosystem_services_invalid_stockflow_source_warns(tmp_path, capsys):
+    p = tmp_path / "EcosystemServices.csv"
+    p.write_text(
+        "StateClassId,ServiceName,ServiceType,ValuePerUnitArea,Currency,"
+        "PhysicalUnit,PhysicalValuePerUnitArea,StockFlowSource\n"
+        "Mangrove,Bad,Regulating,75000,IDR,,,invalidformat\n"
     )
-    assert np.all(stocks["Biomass"] == 50.0)
+    services = load_ecosystem_services(p)
+    assert len(services) == 1
+    assert not services[0].has_stockflow_source
+    captured = capsys.readouterr()
+    assert "invalid StockFlowSource" in captured.out
+
+def test_load_ecosystem_services_mode_a_b_still_work(tmp_path):
+    p = tmp_path / "EcosystemServices.csv"
+    p.write_text(
+        "StateClassId,ServiceName,ServiceType,ValuePerUnitArea,Currency,"
+        "PhysicalUnit,PhysicalValuePerUnitArea\n"
+        "Mangrove,Tourism,Cultural,5000,IDR,,\n"
+        "Mangrove,Carbon,Regulating,75000,IDR,MgC/ha,1300\n"
+    )
+    services = load_ecosystem_services(p)
+    assert len(services) == 2
+    assert not services[0].has_physical
+    assert not services[0].has_stockflow_source
+    assert services[1].has_physical
+    assert services[1].physical_per_unit_area == 1300
 
 
-# ── run_flows_for_timestep: NPP accumulation (Alongi-grounded) ───────────────
+# ── SEEAAccount Mode C valuation ──────────────────────────────────────────────
 
 @pytest.fixture
 def classes():
-    return {
+    return {1: StateClass(1, "Mangrove", "Mangrove:All", (255, 0, 100, 0))}
+
+@pytest.fixture
+def area_modal_df():
+    return pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove", "area_ha": 100.0},
+        {"year": 2023, "class_id": 1, "class_name": "Mangrove", "area_ha": 95.0},
+    ])
+
+def test_mode_c_flow_monetary_value(classes, area_modal_df):
+    services = [
+        EcosystemService(
+            "Mangrove", "Carbon Sequestration", "Regulating", 75000, "IDR",
+            "MgC", None, stockflow_source="flow:NPP",
+        ),
+    ]
+    flow_df = pd.DataFrame([
+        {"year": 2022, "class_name": "Mangrove", "flow_type": "NPP", "total": 1840.0},
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP", "total": 1748.0},
+    ])
+    acct = SEEAAccount(
+        area_modal_df=area_modal_df, trans_df=pd.DataFrame(), services=services,
+        classes=classes, px_area=1.0, flow_df=flow_df,
+    )
+    mon = acct.monetary_flow_account()
+    assert mon.loc[2022].values[0] == pytest.approx(1840.0 * 75000)
+    assert mon.loc[2023].values[0] == pytest.approx(1748.0 * 75000)
+
+def test_mode_c_differs_from_area_based_calculation(classes, area_modal_df):
+    services = [
+        EcosystemService(
+            "Mangrove", "Carbon Sequestration", "Regulating", 75000, "IDR",
+            "MgC", None, stockflow_source="flow:NPP",
+        ),
+    ]
+    flow_df = pd.DataFrame([
+        {"year": 2022, "class_name": "Mangrove", "flow_type": "NPP", "total": 1840.0},
+    ])
+    acct = SEEAAccount(
+        area_modal_df=area_modal_df, trans_df=pd.DataFrame(), services=services,
+        classes=classes, px_area=1.0, flow_df=flow_df,
+    )
+    mon = acct.monetary_flow_account()
+    area_based_value = 100.0 * 75000
+    assert mon.loc[2022].values[0] != pytest.approx(area_based_value)
+
+def test_mode_c_stock_kind(classes, area_modal_df):
+    services = [
+        EcosystemService(
+            "Mangrove", "Carbon Storage", "Regulating", 75000, "IDR",
+            "MgC", None, stockflow_source="stock:Biomass",
+        ),
+    ]
+    stock_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 18400.0},
+    ])
+    acct = SEEAAccount(
+        area_modal_df=area_modal_df, trans_df=pd.DataFrame(), services=services,
+        classes=classes, px_area=1.0, stock_df=stock_df,
+    )
+    mon = acct.monetary_flow_account()
+    assert mon.loc[2022].values[0] == pytest.approx(18400.0 * 75000)
+
+def test_mode_c_missing_aggregation_df_returns_zero(classes, area_modal_df):
+    services = [
+        EcosystemService(
+            "Mangrove", "Carbon Sequestration", "Regulating", 75000, "IDR",
+            "MgC", None, stockflow_source="flow:NPP",
+        ),
+    ]
+    acct = SEEAAccount(
+        area_modal_df=area_modal_df, trans_df=pd.DataFrame(), services=services,
+        classes=classes, px_area=1.0,
+    )
+    mon = acct.monetary_flow_account()
+    assert mon.loc[2022].values[0] == 0.0
+
+def test_mode_a_b_unaffected_by_mode_c_presence(classes, area_modal_df):
+    services = [
+        EcosystemService("Mangrove", "Tourism", "Cultural", 5000, "IDR", None, None),
+        EcosystemService(
+            "Mangrove", "Carbon Sequestration", "Regulating", 75000, "IDR",
+            "MgC", None, stockflow_source="flow:NPP",
+        ),
+    ]
+    flow_df = pd.DataFrame([
+        {"year": 2022, "class_name": "Mangrove", "flow_type": "NPP", "total": 1840.0},
+    ])
+    acct = SEEAAccount(
+        area_modal_df=area_modal_df, trans_df=pd.DataFrame(), services=services,
+        classes=classes, px_area=1.0, flow_df=flow_df,
+    )
+    mon = acct.monetary_flow_account()
+    tourism_value = mon.loc[2022, ("Cultural", "Tourism")]
+    carbon_value  = mon.loc[2022, ("Regulating", "Carbon Sequestration")]
+    assert tourism_value == pytest.approx(100.0 * 5000)
+    assert carbon_value  == pytest.approx(1840.0 * 75000)
+
+
+# ── v3.3: area-unit conversion in valuation ─────────────────────────────────
+
+def test_mode_a_valuation_correct_when_area_unit_is_km2(classes):
+    """
+    ValuePerUnitArea is hectare-denominated. When area_modal_df is expressed in
+    km2 (AREA_UNIT="km2"), SEEAAccount must convert back to hectares using
+    px_area_ha before applying the price — 1 km2 = 100 ha.
+    """
+    area_modal_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove", "area_km2": 1.0},
+    ])
+    services = [
+        EcosystemService("Mangrove", "Tourism", "Cultural", 1000, "IDR", None, None),
+    ]
+    # 1 pixel = 0.01 ha = 0.0001 km2  →  px_area_ha / px_area = 100 (ha per km2)
+    acct = SEEAAccount(
+        area_modal_df=area_modal_df, trans_df=pd.DataFrame(), services=services,
+        classes=classes, px_area=0.0001, px_area_ha=0.01,
+    )
+    mon = acct.monetary_flow_account()
+    # 1 km2 = 100 ha  →  value = 1000 IDR/ha * 100 ha = 100,000 IDR
+    assert mon.loc[2022].values[0] == pytest.approx(1000 * 100.0)
+
+def test_mode_a_valuation_without_px_area_ha_warns_when_not_ha(classes, capsys):
+    """
+    Omitting px_area_ha when the area unit isn't hectares should warn,
+    since valuation would otherwise silently treat km2/px as if hectares.
+    """
+    area_modal_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove", "area_km2": 1.0},
+    ])
+    services = [
+        EcosystemService("Mangrove", "Tourism", "Cultural", 1000, "IDR", None, None),
+    ]
+    SEEAAccount(
+        area_modal_df=area_modal_df, trans_df=pd.DataFrame(), services=services,
+        classes=classes, px_area=0.0001,   # px_area_ha intentionally omitted
+    )
+    captured = capsys.readouterr()
+    assert "px_area_ha" in captured.out
+
+
+# ── Aggregation functions ──────────────────────────────────────────────────────
+
+def test_aggregate_flow_by_type_median_across_iterations(tmp_path):
+    for i in [1, 2, 3]:
+        d = tmp_path / f"iter_{i:03d}"
+        d.mkdir()
+        pd.DataFrame([
+            {"iteration": i, "year": 2022, "flow_type": "NPP",
+             "from_stock": "Atmosphere", "to_stock": "Biomass",
+             "transition_group": "", "total_amount": 100.0 * i},
+        ]).to_csv(d / "flow_log.csv", index=False)
+
+    result = aggregate_flow_by_type([tmp_path / f"iter_{i:03d}" for i in [1,2,3]])
+    assert len(result) == 1
+    assert result.iloc[0]["total"] == 200.0
+
+def test_aggregate_flow_by_class_reads_per_class_breakdown(tmp_path):
+    for i in [1, 2]:
+        d = tmp_path / f"iter_{i:03d}"
+        d.mkdir()
+        pd.DataFrame([
+            {"iteration": i, "year": 2022, "flow_type": "NPP",
+             "from_stock": "Atmosphere", "to_stock": "Biomass",
+             "class_name": "Mangrove", "amount": 1000.0 * i},
+        ]).to_csv(d / "flow_log_by_class.csv", index=False)
+
+    result = aggregate_flow_by_class([tmp_path / f"iter_{i:03d}" for i in [1,2]])
+    assert len(result) == 1
+    assert result.iloc[0]["class_name"] == "Mangrove"
+    assert result.iloc[0]["total"] == 1500.0
+
+def test_aggregate_flow_by_class_empty_when_no_files(tmp_path):
+    d = tmp_path / "iter_001"
+    d.mkdir()
+    result = aggregate_flow_by_class([d])
+    assert result.empty
+
+def test_aggregate_flow_by_class_skips_empty_but_present_log(tmp_path):
+    """v3.11 regression test: an iteration with no by_class flow records
+    writes a zero-column/empty flow_log_by_class.csv (engine._save_flow_log()
+    writes it unconditionally). aggregate_flow_by_class() must skip it
+    rather than crash with pd.errors.EmptyDataError."""
+    d1 = tmp_path / "iter_001"
+    d1.mkdir()
+    (d1 / "flow_log_by_class.csv").write_text("")   # empty-but-present file
+
+    d2 = tmp_path / "iter_002"
+    d2.mkdir()
+    pd.DataFrame([
+        {"iteration": 2, "year": 2022, "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass",
+         "class_name": "Mangrove", "amount": 500.0},
+    ]).to_csv(d2 / "flow_log_by_class.csv", index=False)
+
+    result = aggregate_flow_by_class([d1, d2])
+    assert len(result) == 1
+    assert result.iloc[0]["class_name"] == "Mangrove"
+    assert result.iloc[0]["total"] == 500.0
+
+def test_aggregate_stock_by_class_masks_by_modal_class(tmp_path):
+    from PIL import Image
+    classes = {
         1: StateClass(1, "Mangrove",    "Mangrove:All",    (255,0,100,0)),
         2: StateClass(2, "Aquaculture", "Aquaculture:All", (255,255,0,255)),
     }
+    iter_dir = tmp_path / "iter_001"
+    stock_dir = iter_dir / "stocks" / "Biomass"
+    stock_dir.mkdir(parents=True)
 
-def test_npp_accumulation_matches_alongi_rate(classes):
-    shape = (1, 1)
-    age_map = np.array([[50]], dtype=np.uint16)
-    lulc_map = np.array([[1]], dtype=np.uint8)
-    attr_rules = [StateAttributeValueRule("NPP", None, None, None, 18.4)]
-    stocks = {"Atmosphere": np.zeros(shape, dtype=np.float32),
-              "Biomass": np.zeros(shape, dtype=np.float32)}
-    pathway = FlowPathwayRule(
-        from_state_class="Mangrove", from_age_min=None, from_stock_type="Atmosphere",
-        to_state_class=None, to_age_min=None, to_stock_type="Biomass",
-        transition_group=None, state_attribute="NPP", flow_type="NPP",
-        target_type="Flow", multiplier=1.0,
+    arr = np.array([[10.0, 10.0], [5.0, 5.0]], dtype=np.float32)
+    Image.fromarray(arr, mode="F").save(str(stock_dir / "stock_2022.tif"))
+
+    modal_maps = {2022: np.array([[1, 1], [2, 2]], dtype=np.uint8)}
+
+    result = aggregate_stock_by_class(
+        iter_dirs=[iter_dir], stock_types=["Biomass"], classes=classes,
+        modal_maps=modal_maps, start_year=2022, n_timesteps=0,
     )
-    for year in range(2022, 2032):
-        stocks, _ = run_flows_for_timestep(
-            stocks, [pathway], {"NPP": 1}, [], age_map, attr_rules,
-            classes, year, {}, lulc_map=lulc_map,
-        )
-    assert abs(stocks["Biomass"][0, 0] - 10 * 18.4) < 0.01
+    mangrove_total = result[
+        (result["class_name"]=="Mangrove") & (result["year"]==2022)
+    ]["total"].values[0]
+    aqua_total = result[
+        (result["class_name"]=="Aquaculture") & (result["year"]==2022)
+    ]["total"].values[0]
+    assert mangrove_total == pytest.approx(20.0)
+    assert aqua_total == pytest.approx(10.0)
 
-def test_npp_state_attribute_source_not_clipped_by_zero_from_stock(classes):
+
+# ── build_asset_account (v3.3) ─────────────────────────────────────────────────
+
+from strategicc.stockflow.aggregation import build_asset_account
+
+
+def test_asset_account_no_emission_pure_accumulation():
+    classes = {1: StateClass(1, "Mangrove", "Mangrove:All", (255, 0, 100, 0))}
+    stock_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 0.0},
+        {"year": 2023, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 1840.0},
+    ])
+    flow_df = pd.DataFrame([
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 1840.0},
+    ])
+    account = build_asset_account(
+        stock_df=stock_df, flow_df=flow_df, stock_types=["Biomass"],
+        classes=classes, start_year=2022, n_timesteps=1,
+    )
+    row = account[account["year"] == 2023].iloc[0]
+    assert row["opening_balance"] == 0.0
+    assert row["additions"] == 1840.0
+    assert row["reductions"] == 0.0
+    assert row["closing_balance_reconciled"] == 1840.0
+    assert row["closing_balance_actual"] == 1840.0
+    assert row["reconciliation_diff"] == pytest.approx(0.0, abs=1e-6)
+
+def test_asset_account_with_additions_and_reductions():
+    classes = {1: StateClass(1, "Mangrove", "Mangrove:All", (255, 0, 100, 0))}
+    stock_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 184.0},
+        {"year": 2023, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 20.24},
+    ])
+    flow_df = pd.DataFrame([
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 18.4},
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "Emission",
+         "from_stock": "Biomass", "to_stock": "Atmosphere", "total": 182.16},
+    ])
+    account = build_asset_account(
+        stock_df=stock_df, flow_df=flow_df, stock_types=["Biomass"],
+        classes=classes, start_year=2022, n_timesteps=1,
+    )
+    row = account[account["year"] == 2023].iloc[0]
+    assert row["opening_balance"] == 184.0
+    assert row["additions"] == 18.4
+    assert row["reductions"] == 182.16
+    assert row["closing_balance_reconciled"] == pytest.approx(20.24, abs=1e-6)
+    assert row["reconciliation_diff"] == pytest.approx(0.0, abs=1e-6)
+
+def test_asset_account_rollforward_opening_equals_prior_closing():
+    """Year N's opening balance must equal year N-1's reconciled closing."""
+    classes = {1: StateClass(1, "Mangrove", "Mangrove:All", (255, 0, 100, 0))}
+    stock_df = pd.DataFrame([
+        {"year": y, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 100.0 * i}
+        for i, y in enumerate([2022, 2023, 2024])
+    ])
+    flow_df = pd.DataFrame([
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 100.0},
+        {"year": 2024, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 100.0},
+    ])
+    account = build_asset_account(
+        stock_df=stock_df, flow_df=flow_df, stock_types=["Biomass"],
+        classes=classes, start_year=2022, n_timesteps=2,
+    )
+    row_2023 = account[account["year"] == 2023].iloc[0]
+    row_2024 = account[account["year"] == 2024].iloc[0]
+    assert row_2024["opening_balance"] == row_2023["closing_balance_reconciled"]
+
+def test_asset_account_surfaces_discrepancy_not_hidden():
     """
-    Regression test: when a flow is sourced from a State Attribute, it
-    must NOT be clipped to the From-Stock's current value — that stock
-    is a notional/external source, not a depletable pool. This bug
-    previously caused all NPP flows to silently produce zero.
+    Regression / design test: when Additions/Reductions (derived from
+    flow_log medians) don't perfectly reconcile with the actual stock
+    raster median, the discrepancy must be reported explicitly via
+    reconciliation_diff, never silently swallowed or forced to zero.
     """
-    shape = (1, 1)
-    age_map = np.array([[50]], dtype=np.uint16)
-    lulc_map = np.array([[1]], dtype=np.uint8)
-    attr_rules = [StateAttributeValueRule("NPP", None, None, None, 18.4)]
-    stocks = {"Atmosphere": np.zeros(shape, dtype=np.float32),
-              "Biomass": np.zeros(shape, dtype=np.float32)}
-    pathway = FlowPathwayRule(
-        "Mangrove", None, "Atmosphere", None, None, "Biomass",
-        None, "NPP", "NPP", "Flow", 1.0,
+    classes = {1: StateClass(1, "Mangrove", "Mangrove:All", (255, 0, 100, 0))}
+    stock_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 0.0},
+        {"year": 2023, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 100.0},
+    ])
+    flow_df = pd.DataFrame([
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 50.0},
+    ])
+    account = build_asset_account(
+        stock_df=stock_df, flow_df=flow_df, stock_types=["Biomass"],
+        classes=classes, start_year=2022, n_timesteps=1,
     )
-    stocks, _ = run_flows_for_timestep(
-        stocks, [pathway], {"NPP": 1}, [], age_map, attr_rules,
-        classes, 2022, {}, lulc_map=lulc_map,
-    )
-    assert stocks["Biomass"][0, 0] == pytest.approx(18.4, abs=0.01)
+    row = account[account["year"] == 2023].iloc[0]
+    assert row["closing_balance_reconciled"] == 50.0
+    assert row["closing_balance_actual"] == 100.0
+    assert row["reconciliation_diff"] == 50.0
 
-
-# ── from_state_class gating: critical regression tests ───────────────────────
-
-def test_from_state_class_restricts_flow_to_matching_cells_only(classes):
-    """
-    Regression test: an automatic flow with FromStateClassId set must
-    ONLY apply to cells currently in that class. Previously the gate
-    was never applied at all, causing flows to fire on every cell
-    regardless of land cover.
-    """
-    shape = (2, 2)
-    lulc_map = np.array([[1, 1], [2, 2]], dtype=np.uint8)
-    age_map = np.full(shape, 30, dtype=np.uint16)
-    attr_rules = [StateAttributeValueRule("NPP", None, None, None, 18.4)]
-    stocks = {"Atmosphere": np.zeros(shape, dtype=np.float32),
-              "Biomass": np.zeros(shape, dtype=np.float32)}
-    pathway = FlowPathwayRule(
-        from_state_class="Mangrove", from_age_min=None, from_stock_type="Atmosphere",
-        to_state_class=None, to_age_min=None, to_stock_type="Biomass",
-        transition_group=None, state_attribute="NPP", flow_type="NPP",
-        target_type="Flow", multiplier=1.0,
+def test_asset_account_multiple_classes_independent():
+    classes = {
+        1: StateClass(1, "Mangrove",    "Mangrove:All",    (255,0,100,0)),
+        2: StateClass(2, "Aquaculture", "Aquaculture:All", (255,255,0,255)),
+    }
+    stock_df = pd.DataFrame([
+        {"year": 2022, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 0.0},
+        {"year": 2022, "class_id": 2, "class_name": "Aquaculture",
+         "stock_type": "Biomass", "total": 0.0},
+        {"year": 2023, "class_id": 1, "class_name": "Mangrove",
+         "stock_type": "Biomass", "total": 100.0},
+        {"year": 2023, "class_id": 2, "class_name": "Aquaculture",
+         "stock_type": "Biomass", "total": 0.0},
+    ])
+    flow_df = pd.DataFrame([
+        {"year": 2023, "class_name": "Mangrove", "flow_type": "NPP",
+         "from_stock": "Atmosphere", "to_stock": "Biomass", "total": 100.0},
+    ])
+    account = build_asset_account(
+        stock_df=stock_df, flow_df=flow_df, stock_types=["Biomass"],
+        classes=classes, start_year=2022, n_timesteps=1,
     )
-    stocks, _ = run_flows_for_timestep(
-        stocks, [pathway], {"NPP": 1}, [], age_map, attr_rules,
-        classes, 2022, {}, lulc_map=lulc_map,
-    )
-    assert stocks["Biomass"][0, 0] == pytest.approx(18.4, abs=0.01)
-    assert stocks["Biomass"][0, 1] == pytest.approx(18.4, abs=0.01)
-    assert stocks["Biomass"][1, 0] == 0.0
-    assert stocks["Biomass"][1, 1] == 0.0
-
-def test_from_state_class_matches_full_name_label(classes):
-    """
-    Regression test: FromStateClassId in real CSVs uses the full
-    ST-Sim label format ('Mangrove:All'), not just the short name
-    ('Mangrove'). Previously only the short name was indexed, causing
-    full-label matches to silently fail.
-    """
-    shape = (1, 1)
-    lulc_map = np.array([[1]], dtype=np.uint8)
-    age_map = np.array([[30]], dtype=np.uint16)
-    attr_rules = [StateAttributeValueRule("NPP", None, None, None, 18.4)]
-    stocks = {"Atmosphere": np.zeros(shape, dtype=np.float32),
-              "Biomass": np.zeros(shape, dtype=np.float32)}
-    pathway = FlowPathwayRule(
-        from_state_class="Mangrove:All",
-        from_age_min=None, from_stock_type="Atmosphere",
-        to_state_class=None, to_age_min=None, to_stock_type="Biomass",
-        transition_group=None, state_attribute="NPP", flow_type="NPP",
-        target_type="Flow", multiplier=1.0,
-    )
-    stocks, _ = run_flows_for_timestep(
-        stocks, [pathway], {"NPP": 1}, [], age_map, attr_rules,
-        classes, 2022, {}, lulc_map=lulc_map,
-    )
-    assert stocks["Biomass"][0, 0] == pytest.approx(18.4, abs=0.01)
-
-def test_unmatched_from_state_class_yields_zero_eligible(classes):
-    shape = (1, 1)
-    lulc_map = np.array([[1]], dtype=np.uint8)
-    age_map = np.array([[30]], dtype=np.uint16)
-    attr_rules = [StateAttributeValueRule("NPP", None, None, None, 18.4)]
-    stocks = {"Atmosphere": np.zeros(shape, dtype=np.float32),
-              "Biomass": np.zeros(shape, dtype=np.float32)}
-    pathway = FlowPathwayRule(
-        from_state_class="NonexistentClass", from_age_min=None,
-        from_stock_type="Atmosphere", to_state_class=None, to_age_min=None,
-        to_stock_type="Biomass", transition_group=None, state_attribute="NPP",
-        flow_type="NPP", target_type="Flow", multiplier=1.0,
-    )
-    stocks, records = run_flows_for_timestep(
-        stocks, [pathway], {"NPP": 1}, [], age_map, attr_rules,
-        classes, 2022, {}, lulc_map=lulc_map,
-    )
-    assert stocks["Biomass"][0, 0] == 0.0
-    assert len(records) == 0
-
-
-# ── Emission flow (transition-triggered) ──────────────────────────────────────
-
-def test_emission_on_transition(classes):
-    shape = (1, 1)
-    age_map = np.array([[50]], dtype=np.uint16)
-    lulc_map = np.array([[2]], dtype=np.uint8)
-    stocks = {"Biomass": np.full(shape, 100.0, dtype=np.float32),
-              "Atmosphere": np.zeros(shape, dtype=np.float32)}
-    pathway = FlowPathwayRule(
-        from_state_class=None, from_age_min=None, from_stock_type="Biomass",
-        to_state_class=None, to_age_min=None, to_stock_type="Atmosphere",
-        transition_group="Aquaculture_expansion", state_attribute=None,
-        flow_type="Emission", target_type="Flow", multiplier=0.9,
-    )
-    year_transitions = [TransitionRecord(2032, 0, 0, 1, 2, "Aquaculture_expansion")]
-    stocks, records = run_flows_for_timestep(
-        stocks, [pathway], {"Emission": 1}, year_transitions, age_map,
-        [], classes, 2032, {}, lulc_map=lulc_map,
-    )
-    assert stocks["Biomass"][0, 0] == pytest.approx(10.0, abs=0.01)
-    assert stocks["Atmosphere"][0, 0] == pytest.approx(90.0, abs=0.01)
-    assert len(records) == 1
-    assert records[0].flow_type == "Emission"
-
-def test_emission_only_fires_on_cells_where_transition_occurred(classes):
-    shape = (1, 2)
-    age_map = np.full(shape, 50, dtype=np.uint16)
-    lulc_map = np.array([[2, 1]], dtype=np.uint8)
-    stocks = {"Biomass": np.full(shape, 100.0, dtype=np.float32),
-              "Atmosphere": np.zeros(shape, dtype=np.float32)}
-    pathway = FlowPathwayRule(
-        None, None, "Biomass", None, None, "Atmosphere",
-        "Aquaculture_expansion", None, "Emission", "Flow", 0.9,
-    )
-    year_transitions = [TransitionRecord(2032, 0, 0, 1, 2, "Aquaculture_expansion")]
-    stocks, _ = run_flows_for_timestep(
-        stocks, [pathway], {"Emission": 1}, year_transitions, age_map,
-        [], classes, 2032, {}, lulc_map=lulc_map,
-    )
-    assert stocks["Biomass"][0, 0] == pytest.approx(10.0, abs=0.01)
-    assert stocks["Biomass"][0, 1] == 100.0
-
-
-# ── Target Type modes ──────────────────────────────────────────────────────────
-
-def test_to_stock_target_type(classes):
-    shape = (1, 1)
-    age_map = np.array([[10]], dtype=np.uint16)
-    lulc_map = np.array([[1]], dtype=np.uint8)
-    stocks = {"Atmosphere": np.zeros(shape, dtype=np.float32),
-              "Biomass": np.full(shape, 100.0, dtype=np.float32)}
-    pathway = FlowPathwayRule(
-        None, None, "Atmosphere", None, None, "Biomass",
-        None, None, "Growth", "ToStock", 1.5,
-    )
-    stocks, _ = run_flows_for_timestep(
-        stocks, [pathway], {"Growth": 1}, [], age_map, [],
-        classes, 2022, {}, lulc_map=lulc_map,
-    )
-    assert stocks["Biomass"][0, 0] == pytest.approx(150.0, abs=0.01)
-
-def test_from_stock_target_type_matches_doc_example(classes):
-    shape = (1, 1)
-    age_map = np.array([[10]], dtype=np.uint16)
-    lulc_map = np.array([[1]], dtype=np.uint8)
-    stocks = {"Biomass": np.full(shape, 100.0, dtype=np.float32),
-              "Atmosphere": np.zeros(shape, dtype=np.float32)}
-    pathway = FlowPathwayRule(
-        None, None, "Biomass", None, None, "Atmosphere",
-        None, None, "Decay", "FromStock", 0.8,
-    )
-    stocks, _ = run_flows_for_timestep(
-        stocks, [pathway], {"Decay": 1}, [], age_map, [],
-        classes, 2022, {}, lulc_map=lulc_map,
-    )
-    assert stocks["Biomass"][0, 0] == pytest.approx(80.0, abs=0.01)
-
-
-# ── Flow Order sequencing ──────────────────────────────────────────────────────
-
-def test_flow_order_sequencing_npp_before_emission(classes):
-    shape = (1, 1)
-    age_map = np.array([[50]], dtype=np.uint16)
-    lulc_map = np.array([[1]], dtype=np.uint8)
-    attr_rules = [StateAttributeValueRule("NPP", None, None, None, 18.4)]
-    stocks = {"Atmosphere": np.zeros(shape, dtype=np.float32),
-              "Biomass": np.full(shape, 184.0, dtype=np.float32)}
-
-    npp = FlowPathwayRule(
-        "Mangrove", None, "Atmosphere", None, None, "Biomass",
-        None, "NPP", "NPP", "Flow", 1.0,
-    )
-    emission = FlowPathwayRule(
-        None, None, "Biomass", None, None, "Atmosphere",
-        "Aquaculture_expansion", None, "Emission", "Flow", 0.9,
-    )
-    year_transitions = [TransitionRecord(2032, 0, 0, 1, 2, "Aquaculture_expansion")]
-
-    stocks, _ = run_flows_for_timestep(
-        stocks, [npp, emission], {"NPP": 1, "Emission": 2},
-        year_transitions, age_map, attr_rules, classes, 2032, {},
-        lulc_map=lulc_map,
-    )
-    assert stocks["Biomass"][0, 0] == pytest.approx(20.24, abs=0.01)
-
-def test_flow_order_reversed_gives_different_result(classes):
-    shape = (1, 1)
-    age_map = np.array([[50]], dtype=np.uint16)
-    lulc_map = np.array([[1]], dtype=np.uint8)
-    attr_rules = [StateAttributeValueRule("NPP", None, None, None, 18.4)]
-    stocks = {"Atmosphere": np.zeros(shape, dtype=np.float32),
-              "Biomass": np.full(shape, 184.0, dtype=np.float32)}
-
-    npp = FlowPathwayRule(
-        "Mangrove", None, "Atmosphere", None, None, "Biomass",
-        None, "NPP", "NPP", "Flow", 1.0,
-    )
-    emission = FlowPathwayRule(
-        None, None, "Biomass", None, None, "Atmosphere",
-        "Aquaculture_expansion", None, "Emission", "Flow", 0.9,
-    )
-    year_transitions = [TransitionRecord(2032, 0, 0, 1, 2, "Aquaculture_expansion")]
-
-    stocks, _ = run_flows_for_timestep(
-        stocks, [npp, emission], {"NPP": 2, "Emission": 1},
-        year_transitions, age_map, attr_rules, classes, 2032, {},
-        lulc_map=lulc_map,
-    )
-    assert stocks["Biomass"][0, 0] == pytest.approx(36.8, abs=0.01)
+    mangrove_row = account[
+        (account["year"]==2023) & (account["class_name"]=="Mangrove")
+    ].iloc[0]
+    aqua_row = account[
+        (account["year"]==2023) & (account["class_name"]=="Aquaculture")
+    ].iloc[0]
+    assert mangrove_row["additions"] == 100.0
+    assert aqua_row["additions"] == 0.0   # no flow for Aquaculture this year
