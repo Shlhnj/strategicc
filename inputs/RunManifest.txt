@@ -40,9 +40,6 @@
 #================================================================
 StateClassFileName        = 2022.tif              #path  (the initial LULC raster; ignored if FetchInitialStateClassFromZip=True)
 AgeFileName               = 2022_age.tif          #path  (initial age raster; blank if using AGE_INITIAL_CSV instead)
-StratumFileName           =                     #path  (blank = unused; not yet implemented)
-SecondaryStratumFileName  =                     #path  (blank = unused)
-TertiaryStratumFileName   =                     #path  (blank = unused)
 
 FetchInitialStateClassFromZip  = False                                    #bool  (if True, ignore StateClassFileName and pull the initial raster from a historical LULC zip instead)
 LULCZipPath                    = inputs/annual_lulc_1985_2022.zip          #path  (only used if FetchInitialStateClassFromZip=True; extracted ONCE to inputs/lulc_annual/, all years persisted)
@@ -56,6 +53,7 @@ STATE_CLASSES_CSV                   = inputs/State Class.csv                    
 TRANSITIONS_CSV                     = inputs/Transitions.csv                       #path
 SPATIAL_MULT_CSV                    = inputs/TransitionSpatialMultipliers.csv      #path
 TRANSITION_MULT_CSV                 = inputs/Transition Multiplier.csv             #path
+DISTRIBUTIONS_CSV                   = inputs/Distributions.csv                     #path  (named empirical distributions referenced by TRANSITION_MULT_CSV; optional)
 TRANSITION_TYPE_CSV                 = inputs/Transition Type.csv                   #path
 ECOSYSTEM_SERVICES_CSV              = inputs/EcosystemServices.csv                 #path
 AGE_INITIAL_CSV                     = inputs/InitialAge.csv                        #path
@@ -156,6 +154,18 @@ SEEA_VALUATION_MODE            = area    #str   (area | stock_flow)
 #----------------------------------------------------------------
 #Iteration,Timestep,StratumId,SecondaryStratumId,TertiaryStratumId,StateClassId,AgeMin,AgeMax,TSTGroupId,TSTMin,TSTMax,TransitionGroupId,TransitionMultiplierTypeId,Amount,DistributionType,DistributionFrequencyId,DistributionSD,DistributionMin,DistributionMax
 #,,,,,,,,,,,Aquaculture_expansion [Type],,,Uniform,Iteration and Timestep,,0.33,0.5
+
+#----------------------------------------------------------------
+#Distributions.csv
+#----------------------------------------------------------------
+#Iteration,Timestep,StratumId,SecondaryStratumId,TertiaryStratumId,DistributionTypeId,ExternalVariableTypeId,ExternalVariableMin,ExternalVariableMax,Value,ValueDistributionTypeId,ValueDistributionFrequency,ValueDistributionSD,ValueDistributionMin,ValueDistributionMax,ValueDistributionRelativeFrequency
+#,,,,,Aquaculture_expansion Distribution,,,,0.87,,,,,,3
+# One row per DISTINCT observed multiplier value for a named distribution
+# (referenced from Transition Multiplier.csv's DistributionType column,
+# e.g. "Aquaculture_expansion Distribution" above) -- only DistributionTypeId,
+# Value, and ValueDistributionRelativeFrequency are populated; all other
+# columns are left blank. Optional: only needed if TRANSITION_MULT_CSV uses
+# a named DistributionType instead of the literal "Uniform".
 
 #----------------------------------------------------------------
 #Transition Type.csv
