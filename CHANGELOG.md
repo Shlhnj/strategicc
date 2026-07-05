@@ -23,6 +23,92 @@ interface is the CSV schema and `SEEAAccount`/`load_ecosystem_services()`/
 
 ---
 
+## [3.11.0]
+
+> **Note:** no `[3.10.0]` entry exists in this file -- flagging rather than
+> backfilling it, since v3.10's actual changes weren't reconstructed from
+> source at the time this entry was written. `DISTRIBUTIONS_CSV` (added to
+> the manifest template below) was already recognised by `config.py`'s
+> `_MANIFEST_SCHEMA` as of that version.
+
+Calibration manifest generation now covers Stock & Flow (Section 7) and
+`Distributions.csv`, and gains an in-place update path for manifests the
+user has already hand-filled. Plus one bug fix in Stock & Flow output
+aggregation. No changes to the simulation engine's transition/spatial-mult
+logic or SEEA-EA valuation math.
+
+### Added
+
+- **`fill_manifest_from_calibration()`** (`strategicc/calibration/manifest.py`),
+  updates an *existing*, hand-filled `RunManifest.txt` in place -- unlike
+  `save_calibration_manifest()`, which always generates a brand-new file
+  from scratch. Only the calibration-derived fields (`AgeFileName`,
+  `TRANSITIONS_CSV`, `TRANSITION_MULT_CSV`, `TRANSITION_SIZE_CSV`,
+  `DISTRIBUTIONS_CSV`) are touched; every other line -- including a
+  hand-filled Section 7 -- is preserved untouched. Lines inside fenced
+  (` ``` `) blocks are never touched, matching `config.load_manifest()`'s
+  own appendix/documentation handling. If `DISTRIBUTIONS_CSV` is requested
+  but has no existing line in the file at all, a new line is appended into
+  Section 2 (after `TRANSITION_MULT_CSV` if found, else before `SECTION 3`,
+  else at end of file) rather than silently skipped.
+
+- **`load_group_map_csv()`** (`strategicc/calibration/transitions.py`),
+  builds a `group_map` dict from a user-authored CSV instead of requiring
+  it hand-typed as a Python dict every session. Rather than a new file
+  format, this reuses the existing `Transitions.csv` schema itself
+  (`StateClassIdSource`, `StateClassIdDest`, `TransitionTypeId`,
+  `Probability`) -- the user lists which `(from, to, type)` rows to
+  calibrate with `Probability` left blank/unused, and this function
+  resolves the class labels back to integer ids via a `classes` dict to
+  build the same `dict[(from_id, to_id), group_name]` shape that
+  `compute_transition_rates()`, `compute_temporal_distribution()`, and
+  `compute_size_distribution()` already expect. Rows with an unresolvable
+  class label are skipped with a printed warning rather than silently
+  dropped.
+
+- **`save_calibration_manifest()`** now accepts a `distributions_path`
+  argument and emits a `DISTRIBUTIONS_CSV` row in Section 2 (marked
+  `[calibration]` when supplied, `# TODO:` otherwise) -- previously
+  omitted entirely, even though `config.py` already recognised the key.
+
+- **`save_calibration_manifest()`** now emits **Section 7 (Stock & Flow)**
+  as `# TODO:` placeholders (`USE_STOCKFLOW`, `STOCK_TYPE_CSV`,
+  `STOCK_GROUP_CSV`, `STOCK_GROUP_MEMBERSHIP_CSV`, `FLOW_TYPE_CSV`,
+  `FLOW_ORDER_CSV`, `FLOW_PATHWAYS_CSV`, `FLOW_MULTIPLIER_CSV`,
+  `STATE_ATTRIBUTE_TYPE_CSV`, `STATE_ATTRIBUTE_VALUES_CSV`,
+  `INITIAL_STOCK_NON_SPATIAL_CSV`, `SAVE_STOCK_RASTERS`,
+  `SEEA_VALUATION_MODE`) -- previously the generated manifest stopped
+  after Section 6, silently omitting Stock & Flow from the file entirely.
+  None of these are calibration-derivable, so all are `# TODO:` (never
+  `[calibration]`).
+
+- `inputs/RunManifest.txt` (master template) and
+  `docs/manifest_reference.md` now include a `DISTRIBUTIONS_CSV` row in
+  Section 2 -- the same gap that caused it to be missing from a real
+  user-authored manifest is now closed at the template level too. A
+  filled `Distributions.csv` example was added to the template's Appendix.
+
+### Fixed
+
+- **`aggregate_flow_by_class()`** (`strategicc/stockflow/aggregation.py`)
+  crashed with `pd.errors.EmptyDataError` whenever an iteration produced
+  no `by_class` flow records: `engine._save_flow_log()` always writes
+  `flow_log_by_class.csv` unconditionally (even as a zero-column/empty
+  file), and the aggregation function only checked `log_path.exists()`,
+  not emptiness, before calling `pd.read_csv()`. Now wrapped in
+  `try/except pd.errors.EmptyDataError` so an empty-but-present log is
+  skipped rather than raising.
+
+---
+## [3.10.0] 
+
+Calibration workflow improvements: predefined output paths, auto-generated
+run manifest, and a post-calibration summary report. No changes to the
+simulation engine or SEEA-EA accounting.
+
+Added functionality for generating temporal distribution table (normalized annual rate)
+---
+
 ## [3.9.0] 
 
 Calibration workflow improvements: predefined output paths, auto-generated
