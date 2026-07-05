@@ -1,49 +1,62 @@
 """
-strategicc/calibration/manifest.py  —  v3.9
+strategicc/calibration/manifest.py -- v3.11
 ----------------------------------------------
-Generate a pre-filled RunManifest_calibrated.txt from calibration results.
+Generate a pre-filled RunManifest_calibrated.txt from calibration results,
+or update an existing hand-filled RunManifest.txt in place.
 
-The four rows that calibration can populate automatically are:
+The five rows that calibration can populate automatically are:
   TRANSITIONS_CSV       ← Transitions.csv
   TRANSITION_MULT_CSV   ← TransitionMultipliers.csv
   TRANSITION_SIZE_CSV   ← TransitionSizeDistribution.csv
+  DISTRIBUTIONS_CSV     ← Distributions.csv
   AgeFileName           ← age.tif
 
 All other fields are left blank with # TODO: comments so the user
-knows exactly what still needs to be filled manually.
+knows exactly what still needs to be filled manually -- this INCLUDES
+Section 7 (Stock & Flow) as of v3.11, which was previously omitted
+entirely from the generated manifest.
 
 Functions
 ---------
-save_calibration_manifest  — write RunManifest_calibrated.txt
+save_calibration_manifest -- write a brand-new RunManifest_calibrated.txt
+fill_manifest_from_calibration -- update an EXISTING RunManifest.txt in place,
+                                 touching only the calibration-derived fields
+                                 above and leaving everything else (including
+                                 a hand-filled Section 7) untouched
 """
 
 from __future__ import annotations
+import re
 from pathlib import Path
 from datetime import datetime
 
 
 def save_calibration_manifest(
-    transitions_path: Path | None = None,
-    temporal_path:    Path | None = None,
-    size_dist_path:   Path | None = None,
-    age_raster_path:  Path | None = None,
-    out_path:         Path | None = None,
+    transitions_path:   Path | None = None,
+    temporal_path:      Path | None = None,
+    size_dist_path:     Path | None = None,
+    age_raster_path:    Path | None = None,
+    distributions_path: Path | None = None,
+    out_path:           Path | None = None,
 ) -> Path:
     """
     Write a pre-filled RunManifest_calibrated.txt using paths from a
     calibration run.
 
     Fields that calibration populated are filled in automatically.
-    Fields that require manual input are left blank with # TODO: comments.
+    Fields that require manual input are left blank with # TODO: comments --
+    this now includes Section 7 (Stock & Flow), which prior versions
+    omitted from the generated manifest entirely.
 
     Parameters
     ----------
-    transitions_path : path to Transitions.csv (from save_transitions_csv)
-    temporal_path    : path to TransitionMultipliers.csv
-    size_dist_path   : path to TransitionSizeDistribution.csv
-    age_raster_path  : path to age.tif (from save_age_raster)
-    out_path         : destination; defaults to
-                       calibration_result/RunManifest_calibrated.txt
+    transitions_path   : path to Transitions.csv (from save_transitions_csv)
+    temporal_path      : path to TransitionMultipliers.csv
+    size_dist_path     : path to TransitionSizeDistribution.csv
+    age_raster_path    : path to age.tif (from save_age_raster)
+    distributions_path : path to Distributions.csv (from save_distributions_csv)
+    out_path           : destination; defaults to
+                         calibration_result/RunManifest_calibrated.txt
 
     Returns
     -------
@@ -69,6 +82,7 @@ def save_calibration_manifest(
     if transitions_path:   calibrated.append("Transitions.csv")
     if temporal_path:      calibrated.append("TransitionMultipliers.csv")
     if size_dist_path:     calibrated.append("TransitionSizeDistribution.csv")
+    if distributions_path: calibrated.append("Distributions.csv")
     if age_raster_path:    calibrated.append("age.tif")
 
     header = f"""\
@@ -94,7 +108,7 @@ def save_calibration_manifest(
 
     s1 = f"""\
 #================================================================
-# SECTION 1 — INITIAL CONDITIONS (SPATIAL)
+# SECTION 1 -- INITIAL CONDITIONS (SPATIAL)
 #================================================================
 StateClassFileName        =   # TODO: path to initial LULC raster (e.g. 2022.tif)
 {age_line}
@@ -113,14 +127,15 @@ InitialStateClassYear          =        # TODO: year to extract from zip
 
     s2 = f"""\
 #================================================================
-# SECTION 2 — MULTI-ROW CSV INPUTS
+# SECTION 2 -- MULTI-ROW CSV INPUTS
 #================================================================
 STATE_CLASSES_CSV                   =   # TODO: path to StateClasses.csv
 {_csv_line("TRANSITIONS_CSV", transitions_path, "path to Transitions.csv")}
 SPATIAL_MULT_CSV                    =   # TODO: path to TransitionSpatialMultipliers.csv (not calibratable from rasters alone)
 {_csv_line("TRANSITION_MULT_CSV", temporal_path, "path to TransitionMultipliers.csv")}
+{_csv_line("DISTRIBUTIONS_CSV", distributions_path, "path to Distributions.csv (named empirical distributions referenced by TRANSITION_MULT_CSV)")}
 TRANSITION_TYPE_CSV                 =   # TODO: path to Transition Type.csv
-ECOSYSTEM_SERVICES_CSV              =   # TODO: path to EcosystemServices.csv — service values per class
+ECOSYSTEM_SERVICES_CSV              =   # TODO: path to EcosystemServices.csv -- service values per class
 AGE_INITIAL_CSV                     =   # TODO: path to InitialAge.csv (if not using AgeFileName above)
 {_csv_line("TRANSITION_SIZE_CSV", size_dist_path, "path to TransitionSizeDistribution.csv")}
 TRANSITION_ADJACENCY_SETTING_CSV    =   # TODO: path to Transition Adjacency Setting.csv (optional)
@@ -134,11 +149,11 @@ OUT_DIR                             =   # TODO: path to simulation output folder
     # ── Section 3: Run Control ────────────────────────────────────────────────
     s3 = """\
 #================================================================
-# SECTION 3 — RUN CONTROL
+# SECTION 3 -- RUN CONTROL
 #================================================================
-START_YEAR     =     # TODO: int — e.g. 2022
-N_TIMESTEPS    =     # TODO: int — number of years to simulate
-N_ITERATIONS   =     # TODO: int — number of Monte Carlo iterations (e.g. 20)
+START_YEAR     =     # TODO: int -- e.g. 2022
+N_TIMESTEPS    =     # TODO: int -- number of years to simulate
+N_ITERATIONS   =     # TODO: int -- number of Monte Carlo iterations (e.g. 20)
 RNG_SEED       = 42  #int
 AREA_UNIT      = ha  #str  (ha | km2 | px)
 
@@ -147,7 +162,7 @@ AREA_UNIT      = ha  #str  (ha | km2 | px)
     # ── Section 4: Feature Toggles ────────────────────────────────────────────
     s4 = f"""\
 #================================================================
-# SECTION 4 — FEATURE TOGGLES
+# SECTION 4 -- FEATURE TOGGLES
 #================================================================
 USE_ADJACENCY        = False  # TODO: set True if TransitionAdjacency CSVs are filled
 USE_SPATIAL_MULT     = False  # TODO: set True if SPATIAL_MULT_CSV and MULT_DIR are filled
@@ -161,7 +176,7 @@ SAVE_AGE_RASTERS     = True
     # ── Section 5–6: Output Options ───────────────────────────────────────────
     s5 = """\
 #================================================================
-# SECTION 5 — OUTPUT OPTIONS (NON-SPATIAL)
+# SECTION 5 -- OUTPUT OPTIONS (NON-SPATIAL)
 #================================================================
 SummaryOutputSC            = Yes  #bool
 SummaryOutputSCTimesteps   = 1    #int
@@ -169,7 +184,7 @@ SummaryOutputTR            = Yes  #bool
 SummaryOutputTRTimesteps   = 1    #int
 
 #================================================================
-# SECTION 6 — OUTPUT OPTIONS (SPATIAL)
+# SECTION 6 -- OUTPUT OPTIONS (SPATIAL)
 #================================================================
 RasterOutputSC                       = Yes  #bool
 RasterOutputSCTimesteps              = 1    #int
@@ -180,8 +195,200 @@ RasterOutputTransitionEventTimesteps = 1    #int
 
 """
 
-    content = header + s1 + s2 + s3 + s4 + s5
+    # ── Section 7: Stock & Flow ────────────────────────────────────────────────
+    # v3.11 -- calibration never derives any of these; they always require
+    # manual input, so this section is emitted purely as TODO placeholders
+    # (previously omitted from the generated manifest entirely).
+    s7 = """\
+#================================================================
+# SECTION 7 -- STOCK & FLOW
+#================================================================
+USE_STOCKFLOW                  = False  # TODO: set True to enable carbon/material stock-flow tracking
+STOCK_TYPE_CSV                 =   # TODO: path to StockType.csv
+STOCK_GROUP_CSV                =   # TODO: path to StockGroup.csv
+STOCK_GROUP_MEMBERSHIP_CSV     =   # TODO: path to StockTypeGroupMembership.csv
+FLOW_TYPE_CSV                  =   # TODO: path to FlowType.csv
+FLOW_ORDER_CSV                  =   # TODO: path to FlowOrder.csv
+FLOW_PATHWAYS_CSV               =   # TODO: path to FlowPathways.csv
+FLOW_MULTIPLIER_CSV             =   # TODO: path to FlowMultiplier.csv
+STATE_ATTRIBUTE_TYPE_CSV        =   # TODO: path to StateAttributeType.csv
+STATE_ATTRIBUTE_VALUES_CSV      =   # TODO: path to StateAttributeValues.csv
+INITIAL_STOCK_NON_SPATIAL_CSV   =   # TODO: path to InitialStockNonSpatial.csv
+SAVE_STOCK_RASTERS              = True  # TODO: confirm -- save per-stock-type rasters per timestep
+SEEA_VALUATION_MODE             = area  # TODO: confirm -- area | stock_flow
+
+"""
+
+    content = header + s1 + s2 + s3 + s4 + s5 + s7
 
     out_path.write_text(content, encoding="utf-8")
     print(f"  Saved: {out_path}")
+    return out_path
+
+
+# ── Field -> manifest variable name, in the order they're searched for
+#    an insertion anchor if a key is entirely absent from the file ──────────
+_CALIBRATION_FIELDS = (
+    "AgeFileName",
+    "TRANSITIONS_CSV",
+    "TRANSITION_MULT_CSV",
+    "TRANSITION_SIZE_CSV",
+    "DISTRIBUTIONS_CSV",
+)
+
+
+def fill_manifest_from_calibration(
+    manifest_path:      Path | str,
+    transitions_path:   Path | None = None,
+    temporal_path:      Path | None = None,
+    size_dist_path:     Path | None = None,
+    age_raster_path:    Path | None = None,
+    distributions_path: Path | None = None,
+    out_path:           Path | str | None = None,
+) -> Path:
+    """
+    Update an EXISTING, hand-filled RunManifest.txt in place with only the
+    calibration-derived fields below, leaving everything else in the file --
+    including a hand-filled Section 7 (Stock & Flow) -- completely untouched.
+
+        AgeFileName           <- age_raster_path
+        TRANSITIONS_CSV       <- transitions_path
+        TRANSITION_MULT_CSV   <- temporal_path
+        TRANSITION_SIZE_CSV   <- size_dist_path
+        DISTRIBUTIONS_CSV     <- distributions_path
+
+    This is the counterpart to save_calibration_manifest(): that function
+    generates a brand-new manifest from scratch (with TODO placeholders for
+    everything calibration didn't produce); this one edits a manifest the
+    user has already filled in by hand, touching only the handful of lines
+    calibration can actually derive.
+
+    Only fields with a non-None path argument are updated -- omitting an
+    argument leaves the corresponding line in the file completely alone.
+
+    Lines inside fenced (```...```) blocks are never touched, matching
+    config.load_manifest()'s own appendix/documentation handling.
+
+    If DISTRIBUTIONS_CSV is requested (distributions_path is not None) but
+    no DISTRIBUTIONS_CSV line exists anywhere in the file, a new line is
+    appended into Section 2 -- right after the TRANSITION_MULT_CSV line if
+    it can be found, otherwise immediately before the first "SECTION 3"
+    heading, otherwise at the very end of the file -- rather than silently
+    leaving it out.
+
+    Parameters
+    ----------
+    manifest_path       : path to the existing RunManifest.txt to update
+    transitions_path    : path to Transitions.csv (from save_transitions_csv)
+    temporal_path       : path to TransitionMultipliers.csv
+    size_dist_path      : path to TransitionSizeDistribution.csv
+    age_raster_path     : path to age.tif (from save_age_raster)
+    distributions_path  : path to Distributions.csv (from save_distributions_csv)
+    out_path            : destination; defaults to overwriting manifest_path
+                          itself in place
+
+    Returns
+    -------
+    Path actually written to
+    """
+    manifest_path = Path(manifest_path)
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
+
+    out_path = Path(out_path) if out_path is not None else manifest_path
+
+    field_updates: dict[str, Path | None] = {
+        "AgeFileName":         age_raster_path,
+        "TRANSITIONS_CSV":     transitions_path,
+        "TRANSITION_MULT_CSV": temporal_path,
+        "TRANSITION_SIZE_CSV": size_dist_path,
+        "DISTRIBUTIONS_CSV":   distributions_path,
+    }
+    requested = {k: v for k, v in field_updates.items() if v is not None}
+
+    text = manifest_path.read_text(encoding="utf-8")
+    had_trailing_newline = text.endswith("\n")
+    lines = text.split("\n")
+
+    updated_keys: set[str] = set()
+    in_fence = False
+    out_lines: list[str] = []
+
+    for line in lines:
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            out_lines.append(line)
+            continue
+
+        matched_key = None
+        m = None
+        if not in_fence:
+            for key in requested:
+                if key in updated_keys:
+                    continue   # only the first occurrence of a key is updated
+                candidate = re.match(rf"^(\s*{re.escape(key)}\s*=)\s*([^#]*)(#.*)?$", line)
+                if candidate:
+                    matched_key, m = key, candidate
+                    break
+
+        if m is not None:
+            prefix, _old_value, comment = m.groups()
+            new_value = str(requested[matched_key])
+            new_line = f"{prefix} {new_value}"
+            if comment:
+                new_line += f"  {comment}"
+            out_lines.append(new_line)
+            updated_keys.add(matched_key)
+        else:
+            out_lines.append(line)
+
+    # Any requested field whose key never appeared in the file at all --
+    # currently only expected for DISTRIBUTIONS_CSV on older manifests.
+    missing_keys = [k for k in requested if k not in updated_keys]
+    for key in missing_keys:
+        new_line = f"{key:<35s} = {requested[key]}  # [calibration]"
+
+        insert_at = None
+        in_fence2 = False
+        for i, line in enumerate(out_lines):
+            if line.strip().startswith("```"):
+                in_fence2 = not in_fence2
+                continue
+            if in_fence2:
+                continue
+            if re.match(r"^\s*TRANSITION_MULT_CSV\s*=", line):
+                insert_at = i + 1
+                break
+
+        if insert_at is None:
+            in_fence2 = False
+            for i, line in enumerate(out_lines):
+                if line.strip().startswith("```"):
+                    in_fence2 = not in_fence2
+                    continue
+                if in_fence2:
+                    continue
+                if re.search(r"SECTION\s*3\b", line, re.IGNORECASE):
+                    insert_at = i
+                    break
+
+        if insert_at is not None:
+            out_lines.insert(insert_at, new_line)
+        else:
+            out_lines.append(new_line)
+
+        updated_keys.add(key)
+
+    new_text = "\n".join(out_lines)
+    if had_trailing_newline and not new_text.endswith("\n"):
+        new_text += "\n"
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(new_text, encoding="utf-8")
+
+    print(f"  Updated: {out_path}  ({len(updated_keys)} field(s): {sorted(updated_keys)})")
+    still_missing = sorted(set(requested) - updated_keys)
+    if still_missing:
+        print(f"  [Warning] could not locate or insert: {still_missing}")
+
     return out_path
