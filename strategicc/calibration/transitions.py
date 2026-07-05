@@ -1,5 +1,5 @@
 """
-strategicc/calibration/transitions.py  —  v3.9
+strategicc/calibration/transitions.py -- v3.11
 --------------------------------------------------
 Derive transition rates from a historical LULC time series.
 
@@ -10,7 +10,7 @@ Computes year-by-year transition counts ONCE, then exposes:
     → feeds compute_temporal_distribution() for TransitionMultipliers.csv
 
 Computing both from the same year-by-year counts (rather than separately)
-guarantees mean(yearly_multiplier_samples) ≈ 1.0 — the two output files
+guarantees mean(yearly_multiplier_samples) ≈ 1.0 -- the two output files
 stay mathematically consistent with each other.
 
 A `TransitionGroupMap` must be supplied to assign each observed
@@ -20,6 +20,7 @@ time series carry no group label on their own.
 """
 
 from __future__ import annotations
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,7 +29,7 @@ import pandas as pd
 from scipy import ndimage
 
 from strategicc.calibration.loader import LULCTimeSeries
-from strategicc.io.csv_loader import StateClass
+from strategicc.io.csv_loader import StateClass, _strip_type_suffix
 
 
 @dataclass
@@ -52,7 +53,7 @@ def compute_yearly_transition_counts(
     Compute year-over-year transition pixel counts for every
     (from_class, to_class) pair observed in the time series.
 
-    This is the single source of truth — both the mean Transitions.csv
+    This is the single source of truth -- both the mean Transitions.csv
     and the TransitionMultipliers.csv distribution are derived from this.
 
     Returns
@@ -98,6 +99,84 @@ def compute_yearly_transition_counts(
     return YearlyTransitionCounts(records=df)
 
 
+def load_group_map_csv(
+    path:    str | Path,
+    classes: dict[int, StateClass],
+) -> dict[tuple[int, int], str]:
+    """
+    Build a group_map dict from a user-authored CSV, so the (from_id, to_id)
+    -> group_name mapping needed by compute_transition_rates(),
+    compute_temporal_distribution(), and compute_size_distribution() can be
+    persisted to a file and re-loaded each session, instead of being
+    hand-typed as a Python dict every time.
+
+    Rather than inventing a new file format, this reuses the EXISTING
+    Transitions.csv schema itself -- the same one written by
+    save_transitions_csv() -- as the input:
+
+        StateClassIdSource, StateClassIdDest, TransitionTypeId, Probability
+
+    The user pre-defines which (from, to, type) rows should be calibrated
+    by listing them with the Probability column left blank/unused; this
+    function reads StateClassIdSource / StateClassIdDest / TransitionTypeId
+    from each row and resolves the two class labels to integer ids via
+    `classes` (matched against StateClass.full_name, e.g. "Mangrove:All"),
+    building the same dict[(from_id, to_id), group_name] shape that a
+    hand-typed group_map would have.
+
+    Rows with an empty StateClassIdSource, StateClassIdDest, or
+    TransitionTypeId are skipped. Rows whose class label doesn't resolve to
+    any id in `classes` are skipped with a printed warning (rather than
+    silently dropped, since a typo here would otherwise reproduce the exact
+    "no file-based persistence" bug this function exists to fix).
+
+    Parameters
+    ----------
+    path    : path to the group-map CSV (Transitions.csv schema; Probability
+              column is ignored)
+    classes : dict[int, StateClass] -- for resolving StateClassIdSource /
+              StateClassIdDest labels back to integer class ids
+
+    Returns
+    -------
+    dict[(from_id, to_id), group_name]
+    """
+    path = Path(path)
+    full_name_to_id = {sc.full_name: cid for cid, sc in classes.items()}
+
+    group_map: dict[tuple[int, int], str] = {}
+    unresolved: list[tuple[str, str, str]] = []
+
+    with path.open(newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            from_label = (row.get("StateClassIdSource") or "").strip()
+            to_label   = (row.get("StateClassIdDest") or "").strip()
+            group_raw  = (row.get("TransitionTypeId") or "").strip()
+
+            if not from_label or not to_label or not group_raw:
+                continue
+
+            group   = _strip_type_suffix(group_raw)
+            from_id = full_name_to_id.get(from_label)
+            to_id   = full_name_to_id.get(to_label)
+
+            if from_id is None or to_id is None:
+                unresolved.append((from_label, to_label, group))
+                continue
+
+            group_map[(from_id, to_id)] = group
+
+    if unresolved:
+        print(f"  [Warning] {len(unresolved)} row(s) skipped -- class label "
+              f"not found in classes dict:")
+        for from_label, to_label, group in unresolved[:10]:
+            print(f"      {from_label} -> {to_label}  ({group})")
+
+    print(f"  group_map: {len(group_map)} pathway(s) loaded from {path}")
+    return group_map
+
+
 def compute_transition_rates(
     yearly:          YearlyTransitionCounts,
     classes:         dict[int, StateClass],
@@ -111,8 +190,8 @@ def compute_transition_rates(
     Parameters
     ----------
     yearly          : output of compute_yearly_transition_counts()
-    classes         : dict[int, StateClass] — for class name lookup
-    group_map       : dict[(from_id, to_id), group_name] — assigns each
+    classes         : dict[int, StateClass] -- for class name lookup
+    group_map       : dict[(from_id, to_id), group_name] -- assigns each
                       observed class pair to a named transition group.
                       Pairs not in this dict are EXCLUDED from output
                       (treated as noise/unmapped, printed as a warning).
@@ -165,7 +244,7 @@ def compute_transition_rates(
 
     if unmapped:
         print(f"  [Warning] {len(unmapped)} unmapped (from,to) pair(s) "
-              f"excluded — add to group_map if these are real transitions:")
+              f"excluded -- add to group_map if these are real transitions:")
         for from_id, to_id, prob in sorted(unmapped, key=lambda x: -x[2])[:10]:
             fn = classes[from_id].name if from_id in classes else from_id
             tn = classes[to_id].name   if to_id   in classes else to_id
@@ -213,7 +292,7 @@ def compute_size_distribution(
     ST-Sim TransitionSizeDistribution.csv format.
 
     For each year-pair and each transition GROUP (pooling all (from_id,
-    to_id) pairs mapped to that group — same pooling behaviour as
+    to_id) pairs mapped to that group -- same pooling behaviour as
     compute_temporal_distribution()), builds a binary "did this cell
     undergo this group's transition this year" mask, labels 8- (or 4-)
     connected patches within it via scipy.ndimage, and converts patch
@@ -225,7 +304,7 @@ def compute_size_distribution(
     Parameters
     ----------
     ts           : LULCTimeSeries from load_lulc_timeseries()
-    group_map    : dict[(from_id, to_id), group_name] — SAME mapping used
+    group_map    : dict[(from_id, to_id), group_name] -- SAME mapping used
                    for compute_transition_rates() / compute_temporal_
                    distribution(), so group definitions stay consistent
                    across Transitions.csv, TransitionMultipliers.csv, and
@@ -233,8 +312,8 @@ def compute_size_distribution(
     px_area_ha   : area per pixel in hectares (from engine's CRS-aware
                    _pixel_area_ha(), NOT assumed).
     n_bins       : number of equal-frequency (quantile) bins per group.
-                   Auto quantile binning — no manual bin_edges_ha needed.
-    connectivity : 4 or 8 — neighbour connectivity for patch labeling.
+                   Auto quantile binning -- no manual bin_edges_ha needed.
+    connectivity : 4 or 8 -- neighbour connectivity for patch labeling.
                    8 (default) matches core.patches.grow_patch(), which
                    also grows patches via 8-connected BFS.
     min_patches  : groups with fewer than this many observed patches
@@ -248,7 +327,7 @@ def compute_size_distribution(
     DataFrame in TransitionSizeDistribution.csv schema:
         Transition Type/Group, Maximum Area (Hectares), Relative Amount
     Bins are cumulative and ascending per group, "Relative Amount" as a
-    percentage (sums to ~100 per group) — matches load_transition_size_
+    percentage (sums to ~100 per group) -- matches load_transition_size_
     rules()'s expected format exactly.
     """
     if connectivity not in (4, 8):
@@ -315,7 +394,7 @@ def compute_size_distribution(
     if skipped:
         print(f"  [Info] {len(skipped)} group(s) skipped "
               f"(insufficient patches, recommend omitting from "
-              f"TransitionSizeDistribution.csv — independent-cell firing "
+              f"TransitionSizeDistribution.csv -- independent-cell firing "
               f"will apply):")
         for group, n in skipped:
             print(f"      {group}  (n_patches={n}, min_required={min_patches})")
