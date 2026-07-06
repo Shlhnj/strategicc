@@ -65,6 +65,9 @@ def hindcast_run(
     cache_path:           str | Path | None = "calibration_result/validation_cache/ObservedExtent.csv",
     px_area_ha:           float | None = None,
     flag_threshold_pct:   float = 15.0,
+    transition_mult_csv_override: str | Path | None = None,
+    distributions_csv_override:   str | Path | None = None,
+    lightweight:          bool = False,
 ) -> HindcastResult:
     """
     Run the calibrated model over the historical window and validate
@@ -88,6 +91,21 @@ def hindcast_run(
                     after load() (engine.px_area_ha)
     flag_threshold_pct : a class is flagged for attribute_extent_drift()
                     if abs(pct_diff) at the final shared year exceeds this
+    transition_mult_csv_override : (v3.12) if given, use THIS
+                    TransitionMultipliers.csv instead of the manifest's --
+                    for correction.correct_multipliers(method="optimize")
+                    trial re-runs, which need to test a candidate
+                    multiplier file without touching the calibrated one.
+    distributions_csv_override   : (v3.12) same, for Distributions.csv
+                    (named empirical distributions referenced by a
+                    non-"Uniform" multiplier row).
+    lightweight   : (v3.12) if True, skip modal-map aggregation, spatial
+                    agreement, drift attribution, and the overlay plot --
+                    return only area_df/trans_df/extent_comparison. Used
+                    by the optimizer's per-trial objective evaluations,
+                    where only the extent-comparison signal is needed and
+                    the skipped steps are the most expensive part of a
+                    normal hindcast_run() call.
 
     Returns
     -------
@@ -125,18 +143,48 @@ def hindcast_run(
     # not let the manifest's production-run initial-state logic override it.
     config.FETCH_INITIAL_SC_FROM_ZIP = False
 
+    if transition_mult_csv_override is not None:
+        config.TRANSITION_MULT_CSV = Path(transition_mult_csv_override)
+    if distributions_csv_override is not None:
+        config.DISTRIBUTIONS_CSV = Path(distributions_csv_override)
+
     # ── 2. Run the engine over the historical window ────────────────────────
     engine = StrategiccEngine.from_config()
     engine.load()
-    engine.diagnostic()
+    if not lightweight:
+        engine.diagnostic()
     engine.run()
 
     if px_area_ha is None:
         px_area_ha = engine.px_area_ha
 
-    # ── 3. Simulated summary tables + modal maps ─────────────────────────────
+    # ── 3. Simulated summary tables ───────────────────────────────────────────
     summary_dir = engine.out_dir / "summary"
     area_df, trans_df = outputs.build_summary_tables(engine.iter_dirs, summary_dir)
+
+    if lightweight:
+        # Skip modal aggregation/spatial agreement/drift/plot -- build the
+        # extent comparison straight from the raw (non-modal) area_df,
+        # median across iterations, for a fast per-trial optimizer signal.
+        acol = next((c for c in area_df.columns if c.startswith("area_")), None)
+        sim_median = (
+            area_df.groupby(["year", "class_name"])[acol]
+            .median()
+            .reset_index()
+        )
+        observed_df = compute_observed_extent(
+            ts, engine.classes, px_area_ha, cache_path=cache_path
+        )
+        extent_comparison = compare_extent_trajectories(observed_df, sim_median)
+        return HindcastResult(
+            extent_comparison = extent_comparison,
+            spatial_agreement = {},
+            drift             = {},
+            flagged_classes   = [],
+            plot_path         = None,
+            area_df           = area_df,
+            trans_df          = trans_df,
+        )
 
     modal_maps = outputs.aggregate_spatial(
         iter_dirs   = engine.iter_dirs,
