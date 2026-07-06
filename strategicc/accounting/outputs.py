@@ -1,5 +1,5 @@
 """
-strategicc/accounting/outputs.py  —  SEEA-EA output functions  v3.8
+strategicc/accounting/outputs.py  —  SEEA-EA output functions  v3.12
 --------------------------------------------------------------------
 Saves all ecosystem accounts as CSVs and generates plots.
 
@@ -9,6 +9,8 @@ save_all_accounts   — save all account tables to CSV
 plot_monetary_flows — stacked area chart of total ecosystem value over time
 plot_value_by_service — line chart per service type over time
 plot_transition_heatmap — heatmap of transition matrix (area and value)
+save_monetary_value_raster — (v3.12) Mode C genuine per-pixel valuation
+                              raster from a simulated stock raster
 """
 
 from __future__ import annotations
@@ -20,9 +22,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+from PIL import Image
 
 from strategicc.io.csv_loader import StateClass
+from strategicc.accounting.csv_loader import EcosystemService
 from strategicc.accounting.seea import SEEAAccount
+from strategicc.io.raster import read_tiff, read_lulc, _TAG_TIE_POINT, _TAG_PIXEL_SCALE
 
 
 # ── Color helpers ─────────────────────────────────────────────────────────────
@@ -264,3 +269,99 @@ def plot_transition_heatmap(
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {out_path}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mode C — genuine per-pixel monetary valuation raster (v3.12)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def save_monetary_value_raster(
+    stock_raster_path: str | Path,
+    lulc_raster_path:  str | Path,
+    service:           EcosystemService,
+    classes:           dict[int, StateClass],
+    out_path:          str | Path,
+    nodata_value:      float = -9999.0,
+) -> Path:
+    """
+    Write a genuine per-pixel monetary valuation raster for ONE Mode C
+    ecosystem service, for a single year/iteration.
+
+    Distinct from Mode A/B valuation (SEEAAccount.monetary_flow_account()),
+    which applies a single flat ValuePerUnitArea across an entire class's
+    total area — a "price density map" with no real per-pixel variation.
+    This function instead multiplies the ACTUAL simulated per-pixel stock
+    value by the service's price-per-physical-unit, so two pixels of the
+    same class with different simulated stock (e.g. different Biomass
+    carbon due to age/history) get different valuations.
+
+    v1 scope (flagged, not resolved)
+    ---------------------------------
+    - One service per call — no batch/multi-service raster in this version.
+    - No manifest or engine changes — this reads already-saved stock
+      rasters (engine.out_dir/.../stocks/{stock_type}/stock_{year}.tif)
+      and an already-saved LULC raster for the same year/iteration; it
+      does not hook into the run pipeline automatically.
+    - Only Mode C (stockflow-sourced) services are valid input — Mode A/B
+      services have no per-pixel physical quantity to draw from and will
+      raise ValueError.
+
+    Parameters
+    ----------
+    stock_raster_path : path to a per-pixel stock GeoTIFF (float32) for
+                        the matching stock_type and year/iteration —
+                        e.g. "{iter_dir}/stocks/Biomass/stock_2010.tif"
+    lulc_raster_path  : path to the LULC class-id raster for the SAME
+                        year/iteration, used to mask which pixels belong
+                        to service.state_class (only those are priced;
+                        everything else gets nodata_value)
+    service           : EcosystemService with stockflow_source set
+                        (Mode C) — value_per_unit_area is treated as a
+                        price PER PHYSICAL UNIT, not per area, matching
+                        SEEAAccount's Mode C convention.
+    classes           : dict[int, StateClass] — used to resolve
+                        service.state_class (a name, e.g. "Mangrove") to
+                        the class id(s) that mask which pixels get priced.
+    out_path          : output GeoTIFF path (float32, single-band)
+    nodata_value      : value written for pixels not in service.state_class
+
+    Returns
+    -------
+    Path actually written to
+    """
+    if not service.has_stockflow_source:
+        raise ValueError(
+            f"save_monetary_value_raster requires a Mode C service "
+            f"(stockflow_source set) — service '{service.service_name}' "
+            f"has no StockFlowSource. Use SEEAAccount.monetary_flow_account() "
+            f"for Mode A/B flat per-class valuation instead."
+        )
+
+    stock_arr, _, _ = read_tiff(stock_raster_path)
+    lulc_arr, _, _  = read_lulc(lulc_raster_path)
+
+    if stock_arr.shape != lulc_arr.shape:
+        raise ValueError(
+            f"stock raster shape {stock_arr.shape} != "
+            f"lulc raster shape {lulc_arr.shape} — must be the same "
+            f"year/iteration/extent."
+        )
+
+    class_ids = [cid for cid, sc in classes.items() if sc.name == service.state_class]
+    if not class_ids:
+        raise ValueError(
+            f"service.state_class '{service.state_class}' not found in "
+            f"classes dict — available: {[sc.name for sc in classes.values()]}"
+        )
+
+    value_arr = np.full(stock_arr.shape, nodata_value, dtype=np.float32)
+    mask = np.isin(lulc_arr, class_ids)
+    value_arr[mask] = stock_arr[mask] * service.value_per_unit_area
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    save_kwargs = {"compression": "lzw"}
+    Image.fromarray(value_arr, mode="F").save(str(out_path), **save_kwargs)
+    print(f"  Monetary value raster saved ('{service.service_name}', "
+          f"Mode C): '{out_path}'")
+    return out_path
