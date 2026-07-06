@@ -115,6 +115,15 @@ def hindcast_run(
     config.N_TIMESTEPS   = n_timesteps
     config.N_ITERATIONS  = n_iterations
     config.OUT_DIR       = Path(out_dir)
+    # Bug fix (flagged during v3.12 testing): if the manifest has
+    # FetchInitialStateClassFromZip=True (common for production runs that
+    # pull their initial state from the historical zip), engine.load()
+    # would silently IGNORE the LULC_PATH override above and re-fetch
+    # config.INITIAL_SC_YEAR from the zip instead -- almost always the
+    # production year (e.g. 2022), not this hindcast's start_year. Force
+    # it off here: hindcast_run() supplies its own initial raster and must
+    # not let the manifest's production-run initial-state logic override it.
+    config.FETCH_INITIAL_SC_FROM_ZIP = False
 
     # ── 2. Run the engine over the historical window ────────────────────────
     engine = StrategiccEngine.from_config()
