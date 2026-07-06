@@ -182,13 +182,14 @@ def test_correct_multipliers_scaling(tmp_path):
         "ratio":          [0.5],
     })
     result = correct_multipliers(rate_ratios, mult_path, method="scaling")
+    mult_df = result["transition_multipliers"]
 
-    inundation_row = result[result["TransitionGroupId"] == "Inundation [Type]"].iloc[0]
+    inundation_row = mult_df[mult_df["TransitionGroupId"] == "Inundation [Type]"].iloc[0]
     assert inundation_row["DistributionMin"] == pytest.approx(0.5)
     assert inundation_row["DistributionMax"] == pytest.approx(1.0)
 
     # Agriculture_expansion wasn't in rate_ratios -- must be untouched
-    agri_row = result[result["TransitionGroupId"] == "Agriculture_expansion [Type]"].iloc[0]
+    agri_row = mult_df[mult_df["TransitionGroupId"] == "Agriculture_expansion [Type]"].iloc[0]
     assert agri_row["DistributionMin"] == pytest.approx(0.5)
     assert agri_row["DistributionMax"] == pytest.approx(1.5)
 
@@ -204,19 +205,128 @@ def test_correct_multipliers_respects_bounds(tmp_path):
         "simulated_rate": [0.001], "ratio": [1000.0],
     })
     result = correct_multipliers(rate_ratios, mult_path, method="scaling", bounds=(0.01, 50.0))
-    row = result[result["TransitionGroupId"] == "Inundation [Type]"].iloc[0]
+    mult_df = result["transition_multipliers"]
+    row = mult_df[mult_df["TransitionGroupId"] == "Inundation [Type]"].iloc[0]
     assert row["DistributionMax"] <= 50.0
 
 
-def test_correct_multipliers_optimize_not_implemented(tmp_path):
+def test_correct_multipliers_named_distribution_requires_distributions_file(tmp_path):
+    """A group whose DistributionType isn't literal 'Uniform' has inert
+    DistributionMin/Max -- scaling those alone is a no-op. Without
+    distributions_csv_path, the group should be left uncorrected (not
+    silently mis-corrected)."""
+    mult_path = tmp_path / "TransitionMultipliers.csv"
+    mult_path.write_text(
+        "TransitionGroupId,DistributionType,DistributionMin,DistributionMax,Amount\n"
+        "Mangrove_recruitment [Type],Mangrove_recruitment Distribution,0.372,1.432,\n"
+    )
+    rate_ratios = pd.DataFrame({
+        "group": ["Mangrove_recruitment"], "observed_rate": [0.02],
+        "simulated_rate": [0.04], "ratio": [0.5],
+    })
+    result = correct_multipliers(rate_ratios, mult_path, method="scaling")
+    mult_df = result["transition_multipliers"]
+    row = mult_df[mult_df["TransitionGroupId"] == "Mangrove_recruitment [Type]"].iloc[0]
+    # Left untouched -- no distributions_csv_path was supplied
+    assert row["DistributionMin"] == pytest.approx(0.372)
+    assert row["DistributionMax"] == pytest.approx(1.432)
+    assert "distributions" not in result
+
+
+def test_correct_multipliers_named_distribution_scales_distributions_csv(tmp_path):
+    mult_path = tmp_path / "TransitionMultipliers.csv"
+    mult_path.write_text(
+        "TransitionGroupId,DistributionType,DistributionMin,DistributionMax,Amount\n"
+        "Mangrove_recruitment [Type],Mangrove_recruitment Distribution,0.372,1.432,\n"
+    )
+    dist_path = tmp_path / "Distributions.csv"
+    dist_path.write_text(
+        "DistributionTypeId,Value,ValueDistributionRelativeFrequency\n"
+        "Mangrove_recruitment Distribution,0.4,1\n"
+        "Mangrove_recruitment Distribution,1.4,1\n"
+        "Other_group Distribution,0.9,1\n"
+    )
+    rate_ratios = pd.DataFrame({
+        "group": ["Mangrove_recruitment"], "observed_rate": [0.02],
+        "simulated_rate": [0.04], "ratio": [0.5],
+    })
+    result = correct_multipliers(
+        rate_ratios, mult_path, method="scaling", distributions_csv_path=dist_path
+    )
+    dist_df = result["distributions"]
+    mangrove_vals = dist_df[
+        dist_df["DistributionTypeId"] == "Mangrove_recruitment Distribution"
+    ]["Value"].tolist()
+    assert sorted(mangrove_vals) == pytest.approx([0.2, 0.7])
+
+    # Unrelated named distribution left untouched
+    other_val = dist_df[dist_df["DistributionTypeId"] == "Other_group Distribution"]["Value"].iloc[0]
+    assert other_val == pytest.approx(0.9)
+
+    # DistributionMin/Max in TransitionMultipliers.csv are inert for named
+    # distributions -- correctly left as-is (only Distributions.csv changed)
+    mult_df = result["transition_multipliers"]
+    row = mult_df.iloc[0]
+    assert row["DistributionMin"] == pytest.approx(0.372)
+
+
+def test_correct_multipliers_optimize_requires_manifest_and_ts(tmp_path):
     mult_path = tmp_path / "TransitionMultipliers.csv"
     mult_path.write_text(
         "TransitionGroupId,DistributionType,DistributionMin,DistributionMax,Amount\n"
         "Inundation [Type],Uniform,1.0,2.0,\n"
     )
     rate_ratios = pd.DataFrame({"group": ["Inundation"], "ratio": [0.5]})
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError, match="manifest_path"):
         correct_multipliers(rate_ratios, mult_path, method="optimize")
+
+
+def test_correct_multipliers_optimize_runs_bounded_search(tmp_path, monkeypatch):
+    """Exercise the optimizer's search loop end-to-end with a stubbed
+    hindcast_run, so this test doesn't need a real engine/manifest/raster
+    stack -- only checks that minimize_scalar is actually driven and a
+    scale within bounds is chosen and applied."""
+    import strategicc.validation.correction as correction_mod
+
+    mult_path = tmp_path / "TransitionMultipliers.csv"
+    mult_path.write_text(
+        "TransitionGroupId,DistributionType,DistributionMin,DistributionMax,Amount\n"
+        "Inundation [Type],Uniform,1.0,2.0,\n"
+    )
+    rate_ratios = pd.DataFrame({
+        "group": ["Inundation"], "observed_rate": [0.05],
+        "simulated_rate": [0.10], "ratio": [0.5],
+    })
+
+    class FakeResult:
+        def __init__(self, sse):
+            self.extent_comparison = pd.DataFrame({
+                "year": [2022], "class_name": ["X"],
+                "observed_area": [100.0], "simulated_area": [100.0 + sse ** 0.5],
+                "abs_diff": [sse ** 0.5], "pct_diff": [1.0],
+            })
+
+    def fake_hindcast_run(*args, transition_mult_csv_override=None, **kwargs):
+        # Best "true" scale is 0.7 -- objective minimized near there.
+        scaled = pd.read_csv(transition_mult_csv_override)
+        applied_scale = scaled.iloc[0]["DistributionMax"] / 2.0  # since base was 2.0
+        error = abs(applied_scale - 0.7)
+        return FakeResult(sse=error)
+
+    monkeypatch.setattr(
+        "strategicc.validation.hindcast.hindcast_run", fake_hindcast_run
+    )
+
+    result = correct_multipliers(
+        rate_ratios, mult_path, method="optimize",
+        manifest_path="fake_manifest.txt", ts=object(),
+        max_reruns=8, bounds=(0.1, 10.0),
+    )
+    mult_df = result["transition_multipliers"]
+    row = mult_df[mult_df["TransitionGroupId"] == "Inundation [Type]"].iloc[0]
+    applied_scale = row["DistributionMax"] / 2.0
+    assert 0.01 <= applied_scale <= 100.0
+    assert applied_scale == pytest.approx(0.7, abs=0.1)
 
 
 def test_compute_pathway_rate_ratios_basic(tmp_path):
