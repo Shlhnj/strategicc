@@ -1,5 +1,5 @@
 """
-strategicc/validation/correction.py  —  v3.12
+strategicc/validation/correction.py  —  v3.12.3
 --------------------------------------------------
 Auto-correction of Transition Multipliers, given a hindcast run's observed
 vs. simulated divergence, broken down by pathway (attribute_extent_drift()).
@@ -66,19 +66,32 @@ def compute_pathway_rate_ratios(
     n_timesteps:            int,
 ) -> pd.DataFrame:
     """
-    Approximate mean annual transition probability per group from a
-    simulated hindcast run, and compare it against the calibrated
-    (observed) rate for that group in Transitions.csv.
+    Mean annual transition probability per group from a simulated hindcast
+    run, compared against the calibrated (observed) rate for that group in
+    Transitions.csv.
 
-    Approximation (flagged, not resolved)
-    --------------------------------------
-    The "eligible source pool" for a group is approximated as the total
-    area of every class that appears as a `from_class` for that group in
-    `trans_df`, measured at the FIRST simulated year, held constant across
-    the whole hindcast window. In reality the pool shrinks/grows every
-    year as cells convert -- this is a simplification that will understate
-    or overstate the ratio for groups with large area swings during the
-    hindcast window.
+    Simulated rate calculation (fixed in this revision)
+    ------------------------------------------------------
+    Mirrors how the OBSERVED side already computes rates in
+    calibration.transitions.compute_yearly_transition_counts() /
+    compute_transition_rates(): for each YEAR separately, the eligible
+    source-class pool is taken from THAT year's actual area (not a single
+    pool measured once at the start and held constant), giving that
+    year's real probability; the per-year probabilities are then averaged
+    across years -- an unweighted mean, same convention
+    compute_transition_rates() uses on the observed side.
+
+    Previously this function measured the pool once, at the first
+    simulated year, and reused that single number for every year in the
+    window (`pool * n_timesteps`) -- understating the true rate for any
+    class whose area moved a lot during the hindcast window, since later
+    years' actual (possibly much smaller) pools were never accounted for.
+    That biased the ratio specifically for classes with large area swings
+    -- which in practice were the hardest classes to correct.
+
+    Since the simulation has multiple stochastic iterations (unlike the
+    single historical record), each year's rate is itself an average
+    across iterations before being averaged across years.
 
     Parameters
     ----------
@@ -91,14 +104,21 @@ def compute_pathway_rate_ratios(
                   Probability) -- observed rates, one row per group
                   (TransitionTypeId IS the group column here).
     n_timesteps : number of years simulated in the hindcast window
+                  (kept for API compatibility; no longer used in the
+                  calculation itself now that rates are computed per-year)
 
     Returns
     -------
-    DataFrame: group, observed_rate, simulated_rate, ratio
-    (ratio = observed_rate / simulated_rate; NaN where simulated_rate is 0)
+    DataFrame: group, observed_rate, simulated_rate, ratio, n_years_used
+    (ratio = observed_rate / simulated_rate; NaN where simulated_rate is 0
+    or no valid year had a positive pool; n_years_used reports how many
+    of the window's years actually contributed a rate, so a ratio backed
+    by very few years can be treated with appropriate caution)
     """
     if trans_df.empty:
-        return pd.DataFrame(columns=["group", "observed_rate", "simulated_rate", "ratio"])
+        return pd.DataFrame(
+            columns=["group", "observed_rate", "simulated_rate", "ratio", "n_years_used"]
+        )
 
     acol = next((c for c in area_df.columns if c.startswith("area_")), None)
     if acol is None:
@@ -108,22 +128,40 @@ def compute_pathway_rate_ratios(
     obs_df["group"] = obs_df["TransitionTypeId"].apply(_strip_type_suffix)
     observed_rates = obs_df.groupby("group")["Probability"].mean().to_dict()
 
-    n_iterations = trans_df["iteration"].nunique() or 1
+    all_iterations = sorted(trans_df["iteration"].unique())
 
     rows = []
     for group, grp_trans in trans_df.groupby("group"):
-        n_transitioned = len(grp_trans)
-
         source_classes = grp_trans["from_class"].unique().tolist()
-        first_year = area_df["year"].min()
-        pool = area_df[
-            (area_df["year"] == first_year) & (area_df["class_name"].isin(source_classes))
-        ][acol].sum()
-        n_pool_iters = area_df[area_df["year"] == first_year]["iteration"].nunique() or 1
-        pool = pool / n_pool_iters
 
-        eligible_cell_years = pool * n_timesteps * n_iterations
-        simulated_rate = (n_transitioned / eligible_cell_years) if eligible_cell_years else np.nan
+        yearly_rates = []
+        for year, grp_year in grp_trans.groupby("year"):
+            # Cells transitioned this year, averaged across iterations
+            # (an iteration with zero transitions this year has no rows
+            # in grp_year at all -- reindex so it correctly counts as 0,
+            # not simply absent from the average).
+            n_by_iter = (
+                grp_year.groupby("iteration").size()
+                .reindex(all_iterations, fill_value=0)
+            )
+            mean_n_transitioned = n_by_iter.mean()
+
+            # This YEAR's actual source-class pool, averaged across
+            # iterations -- the fix: was a single value from year 1 used
+            # for every year; now it's this year's real area.
+            year_area = area_df[
+                (area_df["year"] == year) & (area_df["class_name"].isin(source_classes))
+            ]
+            pool_by_iter = year_area.groupby("iteration")[acol].sum()
+            if pool_by_iter.empty:
+                continue
+            mean_pool = pool_by_iter.reindex(all_iterations, fill_value=0.0).mean()
+
+            if mean_pool and mean_pool > 0:
+                yearly_rates.append(mean_n_transitioned / mean_pool)
+
+        simulated_rate = float(np.mean(yearly_rates)) if yearly_rates else np.nan
+        n_years_used = len(yearly_rates)
 
         observed_rate = observed_rates.get(group, np.nan)
         ratio = (
@@ -137,6 +175,7 @@ def compute_pathway_rate_ratios(
             "observed_rate":  observed_rate,
             "simulated_rate": simulated_rate,
             "ratio":          ratio,
+            "n_years_used":   n_years_used,
         })
 
     return pd.DataFrame(rows).sort_values("group").reset_index(drop=True)
