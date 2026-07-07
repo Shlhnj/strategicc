@@ -1,5 +1,5 @@
 """
-tests/test_validation.py  —  v3.12
+tests/test_validation.py  —  v3.12.3
 Unit tests for strategicc.validation (extent comparison, spatial agreement,
 attribute drift, multiplier correction).
 """
@@ -356,3 +356,59 @@ def test_compute_pathway_rate_ratios_basic(tmp_path):
     assert result.iloc[0]["group"] == "Inundation"
     assert result.iloc[0]["observed_rate"] == pytest.approx(0.05)
     assert result.iloc[0]["simulated_rate"] > 0
+    # Only year 2020 had a matching area_df pool -- 2021 contributes nothing
+    assert result.iloc[0]["n_years_used"] == 1
+
+
+def test_compute_pathway_rate_ratios_uses_per_year_pool_not_static_first_year(tmp_path):
+    """
+    Regression test for the fix: previously the pool was measured ONCE at
+    the first year and reused for every year (pool * n_timesteps). If the
+    source class's area shrinks a lot between years, that stale, larger
+    pool understates the true rate. This test constructs exactly that
+    shrinking-pool scenario and checks the rate now reflects each year's
+    REAL (smaller, later) pool rather than the inflated first-year one.
+    """
+    transitions_csv = tmp_path / "Transitions.csv"
+    transitions_csv.write_text(
+        "StateClassIdSource,StateClassIdDest,TransitionTypeId,Probability\n"
+        "Cropland:All,Settlement:All,Urbanization [Type],0.05\n"
+    )
+    # 2 iterations, 2 years. Cropland pool shrinks from 1000 -> 100 between
+    # years (large swing). 10 cells convert each year, each iteration.
+    trans_rows = []
+    for it in (1, 2):
+        for year, n_cells in [(2020, 10), (2021, 10)]:
+            for c in range(n_cells):
+                trans_rows.append({
+                    "iteration": it, "year": year, "row": c, "col": 0,
+                    "from_class": "Cropland", "to_class": "Settlement",
+                    "group": "Urbanization",
+                })
+    trans_df = pd.DataFrame(trans_rows)
+
+    area_rows = []
+    for it in (1, 2):
+        area_rows.append({"iteration": it, "year": 2020, "class_id": 1,
+                           "class_name": "Cropland", "area_ha": 1000.0})
+        area_rows.append({"iteration": it, "year": 2021, "class_id": 1,
+                           "class_name": "Cropland", "area_ha": 100.0})
+    area_df = pd.DataFrame(area_rows)
+
+    result = compute_pathway_rate_ratios(trans_df, area_df, transitions_csv, n_timesteps=2)
+    row = result.iloc[0]
+    assert row["n_years_used"] == 2
+
+    # Correct per-year calculation:
+    #   2020 rate = 10/1000 = 0.01
+    #   2021 rate = 10/100  = 0.10
+    #   mean      = 0.055
+    expected_correct_rate = np.mean([10 / 1000.0, 10 / 100.0])
+    assert row["simulated_rate"] == pytest.approx(expected_correct_rate)
+
+    # The OLD (fixed) behaviour would have used only the year-1 pool
+    # (1000) for both years: rate = (10+10) / (1000*2) = 0.01 -- notably
+    # lower than the correct 0.055. Confirm the new result is NOT that.
+    old_flawed_rate = (10 + 10) / (1000.0 * 2)
+    assert row["simulated_rate"] != pytest.approx(old_flawed_rate)
+    assert row["simulated_rate"] > old_flawed_rate
