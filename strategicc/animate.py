@@ -144,6 +144,7 @@ def _build_panel_series(
 
     if panel == "area_per_class":
         path = summary_dir / "area_modal.csv"
+        sim_unit: str | None = None
         if not path.exists():
             print(f"  [Warning] {path} not found — right panel will be empty.")
             sim_df = pd.DataFrame(columns=["year", "class_name", "value"])
@@ -153,6 +154,7 @@ def _build_panel_series(
             if acol is None:
                 sim_df = pd.DataFrame(columns=["year", "class_name", "value"])
             else:
+                sim_unit = acol[len("area_"):]  # "ha" / "km2" / "px"
                 sim_df = df.rename(columns={acol: "value"})[
                     ["year", "class_name", "value"]
                 ]
@@ -181,13 +183,20 @@ def _build_panel_series(
         if obs_df.empty:
             return sim_df
 
-        # Caveat (not auto-corrected): compute_observed_extent() always
-        # returns hectares. If the run's AREA_UNIT was "km2" or "px",
-        # area_modal.csv's "value" column is in that unit instead, and
-        # this concat would silently mix units on one line-chart axis.
-        # This mirrors the same unit-matching caveat already documented
-        # in compare_extent_trajectories() -- the caller is responsible
-        # for px_area_ha/AREA_UNIT consistency.
+        # compute_observed_extent() always returns hectares. Convert to
+        # whatever unit area_modal.csv actually used (read from its own
+        # "area_*" column name — the ground truth for the run, rather
+        # than trusting cfg.AREA_UNIT to still match what the run used)
+        # so the two series share one axis instead of silently mixing
+        # units. Same px_area_ha is assumed for both rasters (reasonable:
+        # they're the same study area at the same resolution).
+        if sim_unit is not None and sim_unit != "ha":
+            if sim_unit == "px":
+                obs_df = obs_df.assign(value=obs_df["value"] / px_area_ha)
+            else:
+                from strategicc.io.raster import get_pixel_area
+                factor = get_pixel_area(1.0, sim_unit)
+                obs_df = obs_df.assign(value=obs_df["value"] * factor)
         return pd.concat([obs_df, sim_df], ignore_index=True)
 
     if panel in ("transitions_out", "transitions_in"):
@@ -266,13 +275,12 @@ def animate(
     px_area_ha    : pixel area in hectares (e.g. engine.px_area_ha).
                     Required only when both historical_ts is supplied AND
                     panel="area_per_class", so the historical side of the
-                    right panel can be computed. Ignored otherwise. Note:
-                    compute_observed_extent() always returns hectares --
-                    if the run used AREA_UNIT="km2" or "px", the simulated
-                    area_modal.csv series is in that unit instead, and the
-                    two will be plotted on one axis without conversion
-                    (same caller-responsibility caveat as
-                    compare_extent_trajectories()).
+                    right panel can be computed. Ignored otherwise.
+                    compute_observed_extent() always computes in hectares
+                    internally; the result is automatically converted to
+                    match whichever unit area_modal.csv actually used
+                    (read from its own "area_*" column name), so the two
+                    series share one axis regardless of AREA_UNIT.
     figsize       : matplotlib figure size in inches
 
     Returns
