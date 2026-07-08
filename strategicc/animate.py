@@ -1,12 +1,12 @@
 """
-strategicc/animate.py  —  v3.8
+strategicc/animate.py -- v3.12.4
 ---------------------------------
 Standalone animation function. Produces a two-panel GIF/MP4:
   - LEFT panel  : modal LULC map per timestep
   - RIGHT panel : a selectable statistics line chart, synced frame-by-frame
                   with the map (or omitted entirely if panel=None)
 
-Not part of the standard run.py pipeline — call manually after a
+Not part of the standard run.py pipeline -- call manually after a
 simulation completes:
 
     from strategicc import animate
@@ -19,6 +19,29 @@ Encoding uses matplotlib's built-in writers only:
 Historical years (from a calibrated LULCTimeSeries) can be prepended to
 the simulated timeline so the animation shows real past + simulated
 future as one continuous sequence.
+
+Historical LEFT panel vs. RIGHT panel coverage (v3.12.4)
+---------------------------------------------------------
+Prior to v3.12.4, `historical_ts` only extended the LEFT panel (the map):
+historical years appeared as real classified rasters, but the RIGHT panel
+line chart only ever plotted simulated years -- historical years on the
+map had no corresponding point on the line.
+
+As of v3.12.4, `panel="area_per_class"` -- the one panel type with a real
+historical equivalent (observed classified-pixel area, via
+`strategicc.validation.compute_observed_extent()`) -- draws its
+historical side from `historical_ts` when supplied, concatenated with the
+simulated `area_modal.csv` series. This requires `px_area_ha` to also be
+supplied -- see `animate()`'s docstring (state classes are already loaded
+internally from `cfg.STATE_CLASSES_CSV`).
+
+Every other panel type (`value_per_class`, `value_total`,
+`transitions_out`, `transitions_in`) has no historical equivalent to draw
+from (ecosystem value and transition counts are simulation-only
+quantities), so if `historical_ts` is supplied alongside one of those, an
+explicit warning is printed rather than silently omitting the historical
+line segment. The LEFT panel map still shows historical frames in that
+case -- only the RIGHT panel is simulated-years-only.
 """
 
 from __future__ import annotations
@@ -57,15 +80,44 @@ def _load_modal_frames(
 
 
 def _build_panel_series(
-    panel:       str | None,
-    summary_dir: Path,
+    panel:            str | None,
+    summary_dir:      Path,
+    historical_ts     = None,
+    historical_years: list[int] | None = None,
+    classes:          dict | None = None,
+    px_area_ha:       float | None = None,
 ) -> pd.DataFrame | None:
     """
-    Build the right-panel data series for simulated years, in a unified
-    long-format schema: columns = year, class_name, value.
+    Build the right-panel data series, in a unified long-format schema:
+    columns = year, class_name, value.
+
+    For simulated years this is always drawn from the run's summary
+    outputs. For historical years, only `panel="area_per_class"` has a
+    real historical equivalent (observed classified-pixel area) -- that
+    case draws its historical rows from `historical_ts` via
+    `compute_observed_extent()` and concatenates them with the simulated
+    rows. `historical_ts`, `historical_years`, `classes`, and
+    `px_area_ha` are only used by that branch.
+
+    Every other panel type has no historical equivalent, so if
+    `historical_ts` is supplied alongside one of them, this prints an
+    explicit warning rather than silently only showing simulated years.
     """
     if panel is None:
         return None
+
+    if (
+        historical_ts is not None
+        and historical_years
+        and panel != "area_per_class"
+    ):
+        print(
+            f"  [Warning] historical_ts was supplied but panel='{panel}' has "
+            f"no historical equivalent to draw from -- the right panel will "
+            f"only show simulated years. The left-panel map will still "
+            f"include historical frames. Only panel='area_per_class' "
+            f"supports a historical overlay on the right panel."
+        )
 
     if panel == "value_per_class":
         path = summary_dir.parent / "seea" / "seea_total_value_by_class.csv"
@@ -94,12 +146,49 @@ def _build_panel_series(
         path = summary_dir / "area_modal.csv"
         if not path.exists():
             print(f"  [Warning] {path} not found — right panel will be empty.")
-            return pd.DataFrame(columns=["year", "class_name", "value"])
-        df = pd.read_csv(path)
-        acol = next((c for c in df.columns if c.startswith("area_")), None)
-        if acol is None:
-            return pd.DataFrame(columns=["year", "class_name", "value"])
-        return df.rename(columns={acol: "value"})[["year", "class_name", "value"]]
+            sim_df = pd.DataFrame(columns=["year", "class_name", "value"])
+        else:
+            df = pd.read_csv(path)
+            acol = next((c for c in df.columns if c.startswith("area_")), None)
+            if acol is None:
+                sim_df = pd.DataFrame(columns=["year", "class_name", "value"])
+            else:
+                sim_df = df.rename(columns={acol: "value"})[
+                    ["year", "class_name", "value"]
+                ]
+
+        if historical_ts is None or not historical_years:
+            return sim_df
+
+        if classes is None or px_area_ha is None:
+            raise ValueError(
+                "animate(panel='area_per_class', historical_ts=...) requires "
+                "'px_area_ha' so the historical side of the right panel can "
+                "be computed via compute_observed_extent() (state classes "
+                "are already loaded internally from cfg.STATE_CLASSES_CSV). "
+                "Pass px_area_ha=engine.px_area_ha (or the equivalent used "
+                "for the original run)."
+            )
+
+        from strategicc.validation.extent import compute_observed_extent
+
+        obs_df = compute_observed_extent(historical_ts, classes, px_area_ha)
+        obs_df = obs_df[obs_df["year"].isin(historical_years)]
+        obs_df = obs_df.rename(columns={"area_ha": "value"})[
+            ["year", "class_name", "value"]
+        ]
+
+        if obs_df.empty:
+            return sim_df
+
+        # Caveat (not auto-corrected): compute_observed_extent() always
+        # returns hectares. If the run's AREA_UNIT was "km2" or "px",
+        # area_modal.csv's "value" column is in that unit instead, and
+        # this concat would silently mix units on one line-chart axis.
+        # This mirrors the same unit-matching caveat already documented
+        # in compare_extent_trajectories() -- the caller is responsible
+        # for px_area_ha/AREA_UNIT consistency.
+        return pd.concat([obs_df, sim_df], ignore_index=True)
 
     if panel in ("transitions_out", "transitions_in"):
         path = summary_dir / "transitions_all_iterations.csv"
@@ -147,6 +236,7 @@ def animate(
     output_format:  str = "gif",
     output_path:    str | Path | None = None,
     historical_ts   = None,
+    px_area_ha:     float | None = None,
     figsize:        tuple[float, float] = (14, 6),
 ) -> Path:
     """
@@ -166,7 +256,23 @@ def animate(
     output_path   : defaults to {out_dir}/animation.{format}
     historical_ts : optional LULCTimeSeries (from
                     strategicc.calibration.load_lulc_timeseries()) whose
-                    years are PREPENDED to the simulated timeline
+                    years are PREPENDED to the simulated timeline for the
+                    LEFT panel map. As of v3.12.4, if panel="area_per_class"
+                    these years are ALSO drawn onto the RIGHT panel line
+                    chart (via compute_observed_extent()) -- see
+                    'px_area_ha' below, which is required for that case.
+                    For every other panel type, historical years appear
+                    on the map only; a warning is printed to say so.
+    px_area_ha    : pixel area in hectares (e.g. engine.px_area_ha).
+                    Required only when both historical_ts is supplied AND
+                    panel="area_per_class", so the historical side of the
+                    right panel can be computed. Ignored otherwise. Note:
+                    compute_observed_extent() always returns hectares --
+                    if the run used AREA_UNIT="km2" or "px", the simulated
+                    area_modal.csv series is in that unit instead, and the
+                    two will be plotted on one axis without conversion
+                    (same caller-responsibility caveat as
+                    compare_extent_trajectories()).
     figsize       : matplotlib figure size in inches
 
     Returns
@@ -238,7 +344,13 @@ def animate(
     if not map_frames:
         raise ValueError("No map frames could be loaded for the requested year range.")
 
-    panel_df = _build_panel_series(panel, summary_dir)
+    panel_df = _build_panel_series(
+        panel, summary_dir,
+        historical_ts=historical_ts,
+        historical_years=historical_years,
+        classes=classes,
+        px_area_ha=px_area_ha,
+    )
 
     cmap   = _build_cmap(classes)
     max_id = max(classes.keys())
