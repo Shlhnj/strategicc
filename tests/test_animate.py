@@ -5,6 +5,7 @@ Integration tests for strategicc.animate().
 
 import pytest
 import numpy as np
+import pandas as pd
 from pathlib import Path
 
 rasterio = pytest.importorskip("rasterio")
@@ -273,3 +274,82 @@ def test_animate_non_area_panel_historical_warns(ready_engine, tmp_path, capsys)
     assert path.exists()
     captured = capsys.readouterr()
     assert "no historical equivalent" in captured.out
+
+
+def _historical_all_class1(tmp_path, years, rows=15, cols=15):
+    """Build a LULCTimeSeries where every pixel is class id 1, every year."""
+    from strategicc.calibration.loader import LULCTimeSeries
+    stack = np.ones((len(years), rows, cols), dtype=np.uint8)
+    return LULCTimeSeries(stack=stack, years=list(years), profile={})
+
+
+def test_animate_area_per_class_historical_unit_conversion_km2(tmp_path):
+    """
+    compute_observed_extent() always computes in hectares; when
+    area_modal.csv is expressed in km2, the historical side must be
+    converted to km2 too (not silently left in ha) before concatenation.
+    """
+    from strategicc.animate import _build_panel_series
+    from strategicc.io.csv_loader import StateClass
+
+    classes = {1: StateClass(id=1, name="Mangrove", full_name="Mangrove:All",
+                              color=(255, 0, 100, 0))}
+    # (0.001 deg * 111_000 m/deg)^2 / 10_000 m^2/ha -- same formula used by
+    # strategicc.io.raster._pixel_area_ha for this resolution.
+    px_area_ha = (0.001 * 111_000) ** 2 / 10_000
+
+    years = [2019, 2020, 2021]
+    ts = _historical_all_class1(tmp_path, years)
+
+    summary_dir = tmp_path / "summary"
+    summary_dir.mkdir()
+    # Simulated series expressed in km2 (as area_modal.csv would be if the
+    # run used AREA_UNIT="km2") -- content irrelevant to this check beyond
+    # establishing the "area_km2" column name animate() must detect.
+    pd.DataFrame({
+        "year": [2022], "class_name": ["Mangrove"], "area_km2": [1.0],
+    }).to_csv(summary_dir / "area_modal.csv", index=False)
+
+    result = _build_panel_series(
+        "area_per_class", summary_dir,
+        historical_ts=ts, historical_years=years,
+        classes=classes, px_area_ha=px_area_ha,
+    )
+
+    n_cells = 15 * 15
+    expected_km2 = n_cells * px_area_ha * 0.01
+    hist_rows = result[result["year"].isin(years)]
+    assert len(hist_rows) == len(years)
+    for v in hist_rows["value"]:
+        assert v == pytest.approx(expected_km2)
+
+
+def test_animate_area_per_class_historical_unit_conversion_px(tmp_path):
+    """Same conversion check for AREA_UNIT="px" -- ha value / px_area_ha == n_cells."""
+    from strategicc.animate import _build_panel_series
+    from strategicc.io.csv_loader import StateClass
+
+    classes = {1: StateClass(id=1, name="Mangrove", full_name="Mangrove:All",
+                              color=(255, 0, 100, 0))}
+    px_area_ha = (0.001 * 111_000) ** 2 / 10_000
+
+    years = [2019, 2020, 2021]
+    ts = _historical_all_class1(tmp_path, years)
+
+    summary_dir = tmp_path / "summary"
+    summary_dir.mkdir()
+    pd.DataFrame({
+        "year": [2022], "class_name": ["Mangrove"], "area_px": [1.0],
+    }).to_csv(summary_dir / "area_modal.csv", index=False)
+
+    result = _build_panel_series(
+        "area_per_class", summary_dir,
+        historical_ts=ts, historical_years=years,
+        classes=classes, px_area_ha=px_area_ha,
+    )
+
+    expected_px = 15 * 15  # n_cells, since 1 unit == 1 pixel for AREA_UNIT="px"
+    hist_rows = result[result["year"].isin(years)]
+    assert len(hist_rows) == len(years)
+    for v in hist_rows["value"]:
+        assert v == pytest.approx(expected_px)
