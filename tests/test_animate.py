@@ -1,5 +1,5 @@
 """
-tests/test_animate.py  —  v3.5
+tests/test_animate.py  —  v3.12.4
 Integration tests for strategicc.animate().
 """
 
@@ -214,3 +214,62 @@ def test_animate_historical_years_excluded_outside_range(ready_engine, tmp_path)
         output_path=tmp_path / "sim_only.gif",
     )
     assert path.exists()
+
+
+# ── v3.12.4: historical overlay on the right panel ──────────────────────────────
+
+def _make_historical_ts(tmp_path, years, rows=15, cols=15, folder_name="hist_src3"):
+    import zipfile
+    transform = from_origin(110.0, -7.0, 0.001, 0.001)
+    profile = {"driver": "GTiff", "dtype": "uint8", "count": 1,
+               "height": rows, "width": cols,
+               "crs": "EPSG:4326", "transform": transform}
+
+    hist_dir = tmp_path / folder_name
+    hist_dir.mkdir()
+    for year in years:
+        arr = np.ones((rows, cols), dtype=np.uint8)
+        arr[:, 8:] = 2
+        with rasterio.open(str(hist_dir / f"{year}.tif"), "w", **profile) as dst:
+            dst.write(arr, 1)
+
+    hist_zip = tmp_path / f"{folder_name}.zip"
+    with zipfile.ZipFile(hist_zip, "w") as zf:
+        for year in years:
+            zf.write(hist_dir / f"{year}.tif", arcname=f"{year}.tif")
+
+    from strategicc.calibration import load_lulc_timeseries
+    return load_lulc_timeseries(hist_zip, extract_dir=tmp_path / f"{folder_name}_extract")
+
+
+def test_animate_area_per_class_historical_overlay(ready_engine, tmp_path):
+    ts = _make_historical_ts(tmp_path, [2019, 2020, 2021])
+    path = animate(
+        out_dir=ready_engine.out_dir, panel="area_per_class", historical_ts=ts,
+        px_area_ha=ready_engine.px_area_ha,
+        output_format="gif", output_path=tmp_path / "area_hist.gif",
+    )
+    assert path.exists()
+    assert path.stat().st_size > 0
+
+
+def test_animate_area_per_class_historical_requires_px_area_ha(
+    ready_engine, tmp_path
+):
+    ts = _make_historical_ts(tmp_path, [2019, 2020, 2021], folder_name="hist_src4")
+    with pytest.raises(ValueError, match="requires 'px_area_ha'"):
+        animate(
+            out_dir=ready_engine.out_dir, panel="area_per_class", historical_ts=ts,
+            output_format="gif", output_path=tmp_path / "area_hist_missing.gif",
+        )
+
+
+def test_animate_non_area_panel_historical_warns(ready_engine, tmp_path, capsys):
+    ts = _make_historical_ts(tmp_path, [2019, 2020, 2021], folder_name="hist_src5")
+    path = animate(
+        out_dir=ready_engine.out_dir, panel="value_per_class", historical_ts=ts,
+        output_format="gif", output_path=tmp_path / "value_hist.gif",
+    )
+    assert path.exists()
+    captured = capsys.readouterr()
+    assert "no historical equivalent" in captured.out
