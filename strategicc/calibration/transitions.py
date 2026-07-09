@@ -27,6 +27,16 @@ v3.13 changes
   group_map. Returns a new DataFrame in the same Transitions.csv schema;
   does not overwrite transitions_df or write any file (caller decides via
   save_transitions_csv(), same convention as correct_multipliers()).
+
+  NOTE on scope vs. strategicc.validation.correction.correct_multipliers():
+  that function corrects TransitionMultipliers.csv / Distributions.csv (the
+  temporal-variability layer applied ON TOP of the base rates) and, by
+  design, leaves the calibrated Transitions.csv baseline untouched.
+  normalize_transition_rates() is the one that touches the baseline itself
+  -- it runs upstream, at calibration time, before any multiplier is ever
+  applied. The two don't overlap and neither depends on the other, but
+  they're both "correction" steps for the same pipeline, applied at
+  different stages.
 """
 
 from __future__ import annotations
