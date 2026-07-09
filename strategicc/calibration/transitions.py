@@ -1,5 +1,5 @@
 """
-strategicc/calibration/transitions.py -- v3.11
+strategicc/calibration/transitions.py -- v3.13
 --------------------------------------------------
 Derive transition rates from a historical LULC time series.
 
@@ -17,6 +17,16 @@ A `TransitionGroupMap` must be supplied to assign each observed
 (from_class, to_class) pair to a named transition group (e.g.
 "Mangrove_recruitment"), since raw class-to-class pairs in satellite
 time series carry no group label on their own.
+
+v3.13 changes
+-------------
+* New normalize_transition_rates() -- rescales compute_transition_rates()'s
+  output per source class so sanctioned (mapped) pathway probabilities sum
+  to the class's true historical outgoing rate, correcting for probability
+  mass silently lost to unmapped (from_id, to_id) pairs excluded by
+  group_map. Returns a new DataFrame in the same Transitions.csv schema;
+  does not overwrite transitions_df or write any file (caller decides via
+  save_transitions_csv(), same convention as correct_multipliers()).
 """
 
 from __future__ import annotations
@@ -253,6 +263,145 @@ def compute_transition_rates(
     result = pd.DataFrame(rows)
     print(f"  Transitions.csv: {len(result)} pathway(s) derived "
           f"(min_probability={min_probability})")
+    return result
+
+
+def normalize_transition_rates(
+    transitions_df: pd.DataFrame,
+    yearly:         YearlyTransitionCounts,
+    group_map:      dict[tuple[int, int], str],
+    classes:        dict[int, StateClass],
+) -> pd.DataFrame:
+    """
+    Rescale sanctioned (mapped) pathway probabilities per source class so
+    their total matches that class's true historical outgoing rate.
+
+    compute_transition_rates() correctly drops any (from_id, to_id) pair
+    not present in group_map, treating it as unmapped noise. But this
+    means the sanctioned pathways that ARE kept no longer sum to what was
+    actually observed for that source class -- the excluded pairs' share
+    of the outgoing probability mass simply disappears, so the calibrated
+    class transitions out less often overall than the historical record
+    shows.
+
+    This function corrects that per source class:
+        raw_total_outgoing = sum of mean probability across EVERY observed
+                              destination for that class in `yearly`,
+                              mapped or not
+        sanctioned_total    = sum of mean probability across only the
+                              destinations currently in `group_map`
+        scale_factor        = raw_total_outgoing / sanctioned_total
+
+    Every sanctioned pathway's Probability in `transitions_df` is then
+    multiplied by its source class's scale_factor -- proportional
+    redistribution of the missing mass across the pathways you already
+    kept, not a lump-sum add-on and not inventing a new destination.
+
+    A previously-unmapped pathway (e.g. Sedimentation / Water_body ->
+    Tidal_flat) is folded in simply by adding it to your group-map CSV
+    (via load_group_map_csv()) and re-running the calibration pipeline --
+    it then counts toward sanctioned_total automatically, and the
+    scale_factor shrinks accordingly.
+
+    Parameters
+    ----------
+    transitions_df : output of compute_transition_rates() -- unchanged,
+                      NOT mutated in place. Schema: StateClassIdSource,
+                      StateClassIdDest, TransitionTypeId, Probability.
+    yearly          : output of compute_yearly_transition_counts() -- SAME
+                      object used to build transitions_df, so the mean
+                      probabilities being redistributed here are computed
+                      identically to how compute_transition_rates() got
+                      its numbers.
+    group_map       : dict[(from_id, to_id), group_name] -- SAME mapping
+                      used for compute_transition_rates(). Only pathways
+                      present here count toward sanctioned_total.
+    classes         : dict[int, StateClass] -- SAME dict passed to
+                      compute_transition_rates(), needed here to resolve
+                      transitions_df's StateClassIdSource full-name
+                      strings back to integer from_id (transitions_df
+                      itself carries no ids, only names).
+
+    Returns
+    -------
+    New DataFrame, same Transitions.csv schema as transitions_df, with
+    corrected Probability values. Does not save or overwrite anything --
+    matches the correct_multipliers() convention of returning data and
+    leaving the save decision to the caller.
+    """
+    if transitions_df.empty:
+        print("  [Warning] transitions_df is empty -- nothing to normalize")
+        return transitions_df.copy()
+
+    full_name_to_id = {sc.full_name: cid for cid, sc in classes.items()}
+
+    # Same (from_id, to_id) -> mean_probability computation compute_transition_rates()
+    # uses internally, but WITHOUT the group_map / min_probability filtering --
+    # this is the "every observed destination, mapped or not" raw total.
+    raw = (
+        yearly.records.groupby(["from_id", "to_id"])["probability"]
+        .mean()
+        .reset_index()
+        .rename(columns={"probability": "mean_probability"})
+    )
+
+    raw_total_by_source: dict[int, float] = (
+        raw.groupby("from_id")["mean_probability"].sum().to_dict()
+    )
+
+    sanctioned_mask = raw.apply(
+        lambda r: (int(r["from_id"]), int(r["to_id"])) in group_map, axis=1
+    )
+    sanctioned_total_by_source: dict[int, float] = (
+        raw[sanctioned_mask].groupby("from_id")["mean_probability"].sum().to_dict()
+    )
+
+    scale_factor_by_source: dict[int, float] = {}
+    zero_sanctioned = []
+    for from_id, raw_total in raw_total_by_source.items():
+        sanctioned_total = sanctioned_total_by_source.get(from_id, 0.0)
+        if sanctioned_total <= 0:
+            zero_sanctioned.append(from_id)
+            scale_factor_by_source[from_id] = 1.0
+        else:
+            scale_factor_by_source[from_id] = raw_total / sanctioned_total
+
+    if zero_sanctioned:
+        names = [
+            classes[fid].name if fid in classes else fid for fid in zero_sanctioned
+        ]
+        print(
+            f"  [Warning] {len(zero_sanctioned)} source class(es) have observed "
+            f"outgoing transitions but none currently in group_map -- scale_factor "
+            f"left at 1.0 for these (no sanctioned pathway to redistribute onto): "
+            f"{names}"
+        )
+
+    result = transitions_df.copy()
+    unresolved_sources = set()
+
+    def _scaled(row):
+        from_id = full_name_to_id.get(row["StateClassIdSource"])
+        if from_id is None:
+            unresolved_sources.add(row["StateClassIdSource"])
+            return row["Probability"]
+        factor = scale_factor_by_source.get(from_id, 1.0)
+        return round(float(row["Probability"]) * factor, 6)
+
+    result["Probability"] = result.apply(_scaled, axis=1)
+
+    if unresolved_sources:
+        print(
+            f"  [Warning] {len(unresolved_sources)} StateClassIdSource value(s) in "
+            f"transitions_df did not resolve to any id in `classes` -- left "
+            f"unscaled: {sorted(unresolved_sources)}"
+        )
+
+    n_scaled = sum(1 for f in scale_factor_by_source.values() if abs(f - 1.0) > 1e-9)
+    print(
+        f"  normalize_transition_rates(): {n_scaled} source class(es) rescaled "
+        f"(of {len(scale_factor_by_source)} with observed outgoing transitions)"
+    )
     return result
 
 
