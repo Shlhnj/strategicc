@@ -42,6 +42,14 @@ Adjustment target
 Corrections are applied to Transition Multipliers, NOT to the calibrated
 base Transitions.csv probabilities -- the empirical baseline stays
 untouched; only the temporal-variability layer on top of it is rescaled.
+
+NOTE on scope vs. strategicc.calibration.transitions.normalize_transition_rates()
+(v3.13): that function is the one that DOES touch the baseline -- it
+rescales Transitions.csv itself, upstream at calibration time, to correct
+for probability mass lost to unmapped pathways excluded by group_map. It
+runs before correct_multipliers() ever sees the pipeline and is
+independent of it; "the empirical baseline stays untouched" above is a
+statement about what THIS module does, not a whole-pipeline guarantee.
 """
 
 from __future__ import annotations
