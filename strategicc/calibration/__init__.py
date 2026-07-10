@@ -1,5 +1,5 @@
 """
-strategicc/calibration  v3.11
+strategicc/calibration  v3.14
 ---------------------------------
 Tools to derive STRATEGICC inputs from a historical LULC time series
 (supplied as a zip of yearly GeoTIFFs).
@@ -12,7 +12,9 @@ transitions -- derive mean annual transition probabilities (Transitions.csv)
                 and historical patch-size distributions
                 (TransitionSizeDistribution.csv); also loads a persisted
                 group_map from a Transitions.csv-schema CSV
-                (load_group_map_csv, v3.11)
+                (load_group_map_csv, v3.11); also a full, untruncated
+                transition coverage preview to review before calibration
+                (compute_transition_coverage, v3.14)
 temporal -- derive per-pathway empirical multiplier distributions,
                 emitting both TransitionMultipliers.csv (named
                 DistributionType references) and Distributions.csv (the
@@ -33,6 +35,7 @@ from .loader import (
 from .age import compute_age_raster, save_age_raster
 from .transitions import (
     compute_yearly_transition_counts,
+    compute_transition_coverage,
     compute_transition_rates,
     save_transitions_csv,
     compute_size_distribution,
@@ -55,6 +58,7 @@ __all__ = [
     "compute_age_raster",
     "save_age_raster",
     "compute_yearly_transition_counts",
+    "compute_transition_coverage",
     "compute_transition_rates",
     "save_transitions_csv",
     "load_group_map_csv",

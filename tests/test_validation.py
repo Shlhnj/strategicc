@@ -351,23 +351,31 @@ def test_compute_pathway_rate_ratios_basic(tmp_path):
         "class_name": ["Mangrove", "Water_body"],
         "area_ha":    [100.0, 50.0],
     })
-    result = compute_pathway_rate_ratios(trans_df, area_df, transitions_csv, n_timesteps=2)
+    result = compute_pathway_rate_ratios(
+        trans_df, area_df, transitions_csv, px_area_ha=1.0
+    )
     assert len(result) == 1
-    assert result.iloc[0]["group"] == "Inundation"
-    assert result.iloc[0]["observed_rate"] == pytest.approx(0.05)
-    assert result.iloc[0]["simulated_rate"] > 0
+    row = result.iloc[0]
+    assert row["from_class"] == "Mangrove"
+    assert row["to_class"] == "Water_body"
+    assert row["group"] == "Inundation"
+    assert row["observed_rate"] == pytest.approx(0.05)
+    assert row["simulated_rate"] > 0
     # Only year 2020 had a matching area_df pool -- 2021 contributes nothing
-    assert result.iloc[0]["n_years_used"] == 1
+    assert row["n_years_used"] == 1
+    assert row["avg_pool_area_ha"] == pytest.approx(100.0)
+    assert row["total_ha_transitioned_simulated"] == pytest.approx(1.0)  # 1 cell * px_area_ha=1.0
 
 
 def test_compute_pathway_rate_ratios_uses_per_year_pool_not_static_first_year(tmp_path):
     """
-    Regression test for the fix: previously the pool was measured ONCE at
-    the first year and reused for every year (pool * n_timesteps). If the
-    source class's area shrinks a lot between years, that stale, larger
-    pool understates the true rate. This test constructs exactly that
-    shrinking-pool scenario and checks the rate now reflects each year's
-    REAL (smaller, later) pool rather than the inflated first-year one.
+    Regression test for the earlier fix (pre-v3.14): previously the pool
+    was measured ONCE at the first year and reused for every year
+    (pool * n_timesteps). If the source class's area shrinks a lot
+    between years, that stale, larger pool understates the true rate.
+    This test constructs exactly that shrinking-pool scenario and checks
+    the rate reflects each year's REAL (smaller, later) pool rather than
+    the inflated first-year one.
     """
     transitions_csv = tmp_path / "Transitions.csv"
     transitions_csv.write_text(
@@ -395,20 +403,178 @@ def test_compute_pathway_rate_ratios_uses_per_year_pool_not_static_first_year(tm
                            "class_name": "Cropland", "area_ha": 100.0})
     area_df = pd.DataFrame(area_rows)
 
-    result = compute_pathway_rate_ratios(trans_df, area_df, transitions_csv, n_timesteps=2)
+    result = compute_pathway_rate_ratios(
+        trans_df, area_df, transitions_csv, px_area_ha=1.0
+    )
     row = result.iloc[0]
     assert row["n_years_used"] == 2
 
-    # Correct per-year calculation:
+    # Correct per-year calculation (px_area_ha=1.0, so ha pool == pixel pool):
     #   2020 rate = 10/1000 = 0.01
     #   2021 rate = 10/100  = 0.10
     #   mean      = 0.055
     expected_correct_rate = np.mean([10 / 1000.0, 10 / 100.0])
     assert row["simulated_rate"] == pytest.approx(expected_correct_rate)
 
-    # The OLD (fixed) behaviour would have used only the year-1 pool
+    # The OLD (pre-fix) behaviour would have used only the year-1 pool
     # (1000) for both years: rate = (10+10) / (1000*2) = 0.01 -- notably
     # lower than the correct 0.055. Confirm the new result is NOT that.
     old_flawed_rate = (10 + 10) / (1000.0 * 2)
     assert row["simulated_rate"] != pytest.approx(old_flawed_rate)
     assert row["simulated_rate"] > old_flawed_rate
+
+
+def test_compute_pathway_rate_ratios_converts_pool_via_px_area_ha(tmp_path):
+    """
+    Regression test for the v3.14 unit-mismatch fix: mean_pool comes from
+    area_df's hectare column and must be converted to a pixel count via
+    px_area_ha before dividing pixel-count transitions by it. With
+    px_area_ha=0.1 (10 pixels per hectare), a 100 ha pool is 1000 pixels,
+    not 100.
+    """
+    transitions_csv = tmp_path / "Transitions.csv"
+    transitions_csv.write_text(
+        "StateClassIdSource,StateClassIdDest,TransitionTypeId,Probability\n"
+        "Mangrove:All,Water_body:All,Inundation [Type],0.05\n"
+    )
+    trans_df = pd.DataFrame({
+        "iteration":  [1],
+        "year":       [2020],
+        "row":        [0],
+        "col":        [0],
+        "from_class": ["Mangrove"],
+        "to_class":   ["Water_body"],
+        "group":      ["Inundation"],
+    })
+    area_df = pd.DataFrame({
+        "iteration":  [1],
+        "year":       [2020],
+        "class_id":   [1],
+        "class_name": ["Mangrove"],
+        "area_ha":    [100.0],
+    })
+    result = compute_pathway_rate_ratios(
+        trans_df, area_df, transitions_csv, px_area_ha=0.1
+    )
+    row = result.iloc[0]
+    # pool in pixels = 100 ha / 0.1 ha/px = 1000 px; rate = 1 cell / 1000 px
+    assert row["simulated_rate"] == pytest.approx(1 / 1000.0)
+    # total_ha_transitioned_simulated = 1 cell * 0.1 ha/px = 0.1 ha
+    assert row["total_ha_transitioned_simulated"] == pytest.approx(0.1)
+
+
+def test_compute_pathway_rate_ratios_never_pools_pairs_sharing_a_group(tmp_path):
+    """
+    Regression test for the v3.14 weighting-mismatch fix (the
+    Agriculture_expansion / Aquaculture-vs-Other_vegetation
+    misdiagnosis): two DIFFERENT (from,to) pairs sharing one group must
+    be reported as two separate rows with their OWN independent ratios,
+    never averaged or pooled together.
+    """
+    transitions_csv = tmp_path / "Transitions.csv"
+    transitions_csv.write_text(
+        "StateClassIdSource,StateClassIdDest,TransitionTypeId,Probability\n"
+        "Aquaculture:All,Cropland:All,Agriculture_expansion [Type],0.10\n"
+        "Other_vegetation:All,Cropland:All,Agriculture_expansion [Type],0.10\n"
+    )
+    # Aquaculture has a big, healthy pool and fires far too rarely (116x
+    # under-simulated); Other_vegetation has a tiny, starved pool.
+    trans_rows = [
+        {"iteration": 1, "year": 2020, "row": 0, "col": 0,
+         "from_class": "Aquaculture", "to_class": "Cropland", "group": "Agriculture_expansion"},
+    ]
+    trans_df = pd.DataFrame(trans_rows)
+    area_df = pd.DataFrame({
+        "iteration":  [1, 1],
+        "year":       [2020, 2020],
+        "class_id":   [1, 2],
+        "class_name": ["Aquaculture", "Other_vegetation"],
+        "area_ha":    [4000.0, 30.0],
+    })
+
+    result = compute_pathway_rate_ratios(
+        trans_df, area_df, transitions_csv, px_area_ha=1.0
+    )
+    assert len(result) == 2
+
+    aqua_row = result[result["from_class"] == "Aquaculture"].iloc[0]
+    ov_row   = result[result["from_class"] == "Other_vegetation"].iloc[0]
+
+    # Both still labeled with the shared group...
+    assert aqua_row["group"] == "Agriculture_expansion"
+    assert ov_row["group"] == "Agriculture_expansion"
+    # ...but with independent, unpooled rates and ratios.
+    assert aqua_row["simulated_rate"] == pytest.approx(1 / 4000.0)
+    # Other_vegetation pair never fired in the sim, but its pool existed --
+    # simulated_rate must be a real 0.0, not silently dropped.
+    assert ov_row["simulated_rate"] == pytest.approx(0.0)
+    assert aqua_row["ratio"] != ov_row["ratio"]
+    # The Aquaculture pathway's ratio should reveal it as heavily
+    # under-simulated (observed 0.10 vs a much smaller simulated rate).
+    assert aqua_row["ratio"] == pytest.approx(0.10 / (1 / 4000.0))
+
+
+def test_compute_pathway_rate_ratios_labels_simulated_unmapped_pairs_as_unnamed(tmp_path):
+    """A pair present in the simulated transition log but absent from
+    Transitions.csv must still appear in the output, labeled 'unnamed',
+    not be silently excluded."""
+    transitions_csv = tmp_path / "Transitions.csv"
+    transitions_csv.write_text(
+        "StateClassIdSource,StateClassIdDest,TransitionTypeId,Probability\n"
+    )
+    trans_df = pd.DataFrame({
+        "iteration":  [1],
+        "year":       [2020],
+        "row":        [0],
+        "col":        [0],
+        "from_class": ["Water_body"],
+        "to_class":   ["Tidal_flat"],
+        "group":      ["Sedimentation"],
+    })
+    area_df = pd.DataFrame({
+        "iteration":  [1],
+        "year":       [2020],
+        "class_id":   [1],
+        "class_name": ["Water_body"],
+        "area_ha":    [200.0],
+    })
+    result = compute_pathway_rate_ratios(
+        trans_df, area_df, transitions_csv, px_area_ha=1.0
+    )
+    assert len(result) == 1
+    row = result.iloc[0]
+    # Labeled literally "unnamed" -- NOT borrowed from the simulated log's
+    # own "Sedimentation" group tag, since the point is to surface a real
+    # calibration gap, not paper over it with whatever label is handy.
+    assert row["group"] == "unnamed"
+    assert np.isnan(row["observed_rate"])
+
+
+def test_compute_pathway_rate_ratios_surfaces_calibrated_pair_that_never_fired(tmp_path):
+    """A pair present in Transitions.csv but that never appears in the
+    simulated transition log at all must still appear, with
+    simulated_rate=0.0 (not excluded), since 'never fired' is itself the
+    diagnostic signal (under-firing / pool-starvation)."""
+    transitions_csv = tmp_path / "Transitions.csv"
+    transitions_csv.write_text(
+        "StateClassIdSource,StateClassIdDest,TransitionTypeId,Probability\n"
+        "Other_vegetation:All,Cropland:All,Agriculture_expansion [Type],0.05\n"
+    )
+    trans_df = pd.DataFrame(
+        columns=["iteration", "year", "row", "col", "from_class", "to_class", "group"]
+    )
+    area_df = pd.DataFrame({
+        "iteration":  [1],
+        "year":       [2020],
+        "class_id":   [1],
+        "class_name": ["Other_vegetation"],
+        "area_ha":    [30.0],
+    })
+    result = compute_pathway_rate_ratios(
+        trans_df, area_df, transitions_csv, px_area_ha=1.0
+    )
+    assert len(result) == 1
+    row = result.iloc[0]
+    assert row["group"] == "Agriculture_expansion"
+    assert row["simulated_rate"] == pytest.approx(0.0)
+    assert np.isnan(row["ratio"])  # division by zero avoided, not silently 0

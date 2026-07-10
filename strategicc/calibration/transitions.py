@@ -1,5 +1,5 @@
 """
-strategicc/calibration/transitions.py -- v3.13
+strategicc/calibration/transitions.py -- v3.14
 --------------------------------------------------
 Derive transition rates from a historical LULC time series.
 
@@ -37,6 +37,18 @@ v3.13 changes
   applied. The two don't overlap and neither depends on the other, but
   they're both "correction" steps for the same pipeline, applied at
   different stages.
+
+v3.14 changes
+-------------
+* New compute_transition_coverage() -- full, untruncated table of every
+  observed (from_class, to_class) pair, each flagged with its group name
+  or "UNNAMED" if unmapped, sorted by total_n_cells (materiality)
+  descending. Meant to be reviewed BEFORE calibration proceeds.
+* compute_transition_rates() no longer prints a hardcoded top-10 sample
+  of unmapped pairs -- that truncation is what let a real, sizeable
+  unmapped pair go unnoticed for an entire session. It now just reports
+  the unmapped count and points to compute_transition_coverage() for the
+  full table.
 """
 
 from __future__ import annotations
@@ -197,6 +209,109 @@ def load_group_map_csv(
     return group_map
 
 
+def compute_transition_coverage(
+    yearly:    YearlyTransitionCounts,
+    classes:   dict[int, StateClass],
+    group_map: dict[tuple[int, int], str],
+) -> pd.DataFrame:
+    """
+    Full coverage table of every observed (from_class, to_class) pair in
+    the historical time series, flagged with its group name (or
+    "UNNAMED" if not present in group_map), meant to be reviewed BEFORE
+    calibration proceeds.
+
+    v3.14 -- replaces the hardcoded top-10 debug printout that used to
+    live inside compute_transition_rates() (`unmapped[:10]`). That limit
+    is what let `Sedimentation` / `Water_body -> Tidal_flat` go silently
+    unmapped for an entire session -- it wasn't in the top 10 by mean
+    probability, so it never printed, and nobody noticed it was excluded
+    from Transitions.csv until much later during hindcast validation.
+    This function has NO truncation: every observed pair is included, so
+    a large unmapped pair can't hide behind a print-statement limit again.
+
+    Sorting is by `total_n_cells` descending (not mean_probability), so
+    the pairs that move the most actual area surface first -- a pair
+    with a huge but rarely-firing pool (many cells eligible, few
+    converting) is just as visible as one with a high mean probability
+    but a tiny pool, since both are "materiality" concerns for different
+    reasons and neither should be buried.
+
+    Parameters
+    ----------
+    yearly    : output of compute_yearly_transition_counts() -- the same
+                year-by-year records compute_transition_rates() consumes.
+    classes   : dict[int, StateClass] -- for class name lookup.
+    group_map : dict[(from_id, to_id), group_name] -- SAME mapping that
+                will be passed to compute_transition_rates(). Pairs not
+                in this dict are flagged "UNNAMED" here rather than
+                silently dropped.
+
+    Returns
+    -------
+    DataFrame, one row per observed (from_id, to_id) pair, columns:
+        from_class, to_class, group, mean_probability, total_n_cells,
+        avg_n_from_total
+    where:
+        mean_probability : unweighted mean of that pair's yearly
+                            probability (n_cells / n_from_total),
+                            same convention compute_transition_rates()
+                            uses -- NOT weighted by pool size.
+        total_n_cells     : sum of n_cells transitioned across all years
+                            this pair was observed -- the materiality
+                            sort key.
+        avg_n_from_total  : mean of n_from_total (the source class's
+                            eligible pool that year) across the years
+                            this pair was observed.
+    Sorted by total_n_cells descending. Empty DataFrame (with the
+    expected columns) if `yearly.records` is empty.
+    """
+    df = yearly.records
+    cols = ["from_class", "to_class", "group", "mean_probability",
+            "total_n_cells", "avg_n_from_total"]
+    if df.empty:
+        print("  [Warning] No transition records to preview")
+        return pd.DataFrame(columns=cols)
+
+    summary = (
+        df.groupby(["from_id", "to_id"])
+        .agg(
+            mean_probability=("probability", "mean"),
+            total_n_cells=("n_cells", "sum"),
+            avg_n_from_total=("n_from_total", "mean"),
+        )
+        .reset_index()
+    )
+
+    rows = []
+    for _, row in summary.iterrows():
+        from_id, to_id = int(row["from_id"]), int(row["to_id"])
+        from_sc = classes.get(from_id)
+        to_sc   = classes.get(to_id)
+        rows.append({
+            "from_class":       from_sc.name if from_sc else from_id,
+            "to_class":         to_sc.name   if to_sc   else to_id,
+            "group":            group_map.get((from_id, to_id), "UNNAMED"),
+            "mean_probability": round(float(row["mean_probability"]), 6),
+            "total_n_cells":    int(row["total_n_cells"]),
+            "avg_n_from_total": round(float(row["avg_n_from_total"]), 2),
+        })
+
+    result = pd.DataFrame(rows, columns=cols).sort_values(
+        "total_n_cells", ascending=False
+    ).reset_index(drop=True)
+
+    n_unnamed = int((result["group"] == "UNNAMED").sum())
+    print(f"  Transition coverage: {len(result)} observed pair(s), "
+          f"{n_unnamed} UNNAMED (unmapped in group_map)")
+    if n_unnamed:
+        biggest = result.loc[result["group"] == "UNNAMED"].iloc[0]
+        print(f"      largest UNNAMED pair by cell count: "
+              f"{biggest['from_class']} -> {biggest['to_class']} "
+              f"(total_n_cells={biggest['total_n_cells']})")
+
+    return result
+
+
 def compute_transition_rates(
     yearly:          YearlyTransitionCounts,
     classes:         dict[int, StateClass],
@@ -263,12 +378,17 @@ def compute_transition_rates(
         })
 
     if unmapped:
+        # v3.14: no longer prints a truncated top-10 sample here -- that
+        # limit is exactly what let Sedimentation / Water_body -> Tidal_flat
+        # go unnoticed as unmapped for an entire session (it wasn't in the
+        # top 10 by mean probability). Call compute_transition_coverage()
+        # BEFORE calibration for the full, untruncated table of every
+        # observed pair (sorted by total_n_cells, i.e. materiality), with
+        # each one flagged UNNAMED or its group.
         print(f"  [Warning] {len(unmapped)} unmapped (from,to) pair(s) "
-              f"excluded -- add to group_map if these are real transitions:")
-        for from_id, to_id, prob in sorted(unmapped, key=lambda x: -x[2])[:10]:
-            fn = classes[from_id].name if from_id in classes else from_id
-            tn = classes[to_id].name   if to_id   in classes else to_id
-            print(f"      {fn} → {tn}  (mean_prob={prob:.5f})")
+              f"excluded -- add to group_map if these are real transitions. "
+              f"Call compute_transition_coverage(yearly, classes, group_map) "
+              f"for the full table (no truncation).")
 
     result = pd.DataFrame(rows)
     print(f"  Transitions.csv: {len(result)} pathway(s) derived "

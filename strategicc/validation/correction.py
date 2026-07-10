@@ -1,5 +1,5 @@
 """
-strategicc/validation/correction.py  —  v3.12.3
+strategicc/validation/correction.py  —  v3.14
 --------------------------------------------------
 Auto-correction of Transition Multipliers, given a hindcast run's observed
 vs. simulated divergence, broken down by pathway (attribute_extent_drift()).
@@ -50,6 +50,65 @@ for probability mass lost to unmapped pathways excluded by group_map. It
 runs before correct_multipliers() ever sees the pipeline and is
 independent of it; "the empirical baseline stays untouched" above is a
 statement about what THIS module does, not a whole-pipeline guarantee.
+
+v3.14 -- compute_pathway_rate_ratios() redesign
+------------------------------------------------
+Full redesign, not a patch. Previously this function pooled every
+(from_class, to_class) pair sharing one TransitionTypeId "group" together
+before computing a rate for that group. That pooling hid two compounding
+bugs at once for any group spanning more than one pair:
+
+  1. Unit mismatch -- the simulated side's denominator (mean_pool) was
+     taken straight from area_df's hectare column, never converted to a
+     pixel count via px_area_ha, while the numerator (mean_n_transitioned)
+     was always a genuine pixel count. Every simulated_rate (and
+     therefore every ratio) this function ever produced was off by a
+     constant factor of 1/px_area_ha.
+  2. Weighting mismatch -- observed_rate was an UNWEIGHTED mean across a
+     group's pairs (each pair's calibrated Probability counted equally),
+     while simulated_rate pooled all those pairs' source-class areas into
+     one shared, pool-size-weighted denominator. For "Agriculture_expansion"
+     (Aquaculture->Cropland + Other_vegetation->Cropland), Aquaculture's
+     much larger pool dominated the pooled simulated_rate while
+     observed_rate gave both pairs equal weight -- so the pooled ratio
+     didn't represent either pathway's real performance, and hid that
+     Aquaculture->Cropland (not Other_vegetation->Cropland) was the
+     dominant, correctable, ~116x-under-simulated pathway.
+
+Neither bug can recur in this version, because the pooling code path that
+caused them is gone, not patched. The function now computes a rate at the
+(from_class, to_class) PAIR level as the atomic unit and never pools
+pairs together during calculation:
+
+  * `group` is attached to each pair AFTER the rate is computed, as a
+    display/reporting label only (read from Transitions.csv's
+    TransitionTypeId for that pair) -- it is never a grouping key in the
+    math.
+  * Pairs with no group_map entry (i.e. absent from Transitions.csv but
+    present in the simulated transition log) still appear in the output,
+    labeled "unnamed", instead of being silently excluded.
+  * `avg_pool_area_ha` and `total_ha_transitioned_*` columns are added so
+    a reader can judge whether a given ratio matters in absolute area
+    terms, rather than trusting a dimensionless ratio in isolation.
+  * `px_area_ha` is now a required parameter, used to convert the
+    hectare-denominated pool into a pixel count before dividing, fixing
+    bug #1 above.
+  * Source-class conditioning (denominator = eligible SOURCE-class pool)
+    is confirmed as the only correct convention -- a transition
+    probability is "fraction of source-class cells converting this year",
+    never destination-class composition of inflow.
+
+This is a breaking signature change (px_area_ha is now required, and the
+output schema gained from_class/to_class/avg_pool_area_ha/
+total_ha_transitioned_observed/total_ha_transitioned_simulated columns).
+correct_multipliers(method="scaling") still keys its scale factors by
+`group`, so a group spanning multiple pairs with differing ratios will
+have only its last pair's ratio applied (dict collision) -- this is
+flagged explicitly there rather than silently corrupting the multiplier
+file. The recommended fix for such groups is to split them into separate,
+independently-calibrated TransitionTypeId rows (e.g.
+"Agriculture_expansion_OV" / "Agriculture_expansion_Aqua") at the
+group_map/calibration stage, so each group maps to exactly one pair again.
 """
 
 from __future__ import annotations
@@ -67,126 +126,245 @@ _LITERAL_DISTRIBUTIONS = {"uniform"}
 # Pathway rate ratios (observed vs. simulated), from a hindcast run
 # ─────────────────────────────────────────────────────────────────────────────
 
+_RATE_RATIO_COLUMNS = [
+    "from_class", "to_class", "group",
+    "observed_rate", "simulated_rate", "ratio", "n_years_used",
+    "avg_pool_area_ha",
+    "total_ha_transitioned_observed", "total_ha_transitioned_simulated",
+]
+
+
 def compute_pathway_rate_ratios(
     trans_df:              pd.DataFrame,
     area_df:                pd.DataFrame,
     transitions_csv_path:   str | Path,
-    n_timesteps:            int,
+    px_area_ha:             float,
+    n_timesteps:            int | None = None,
 ) -> pd.DataFrame:
     """
-    Mean annual transition probability per group from a simulated hindcast
-    run, compared against the calibrated (observed) rate for that group in
-    Transitions.csv.
+    Mean annual transition probability per (from_class, to_class) PAIR
+    from a simulated hindcast run, compared against the calibrated
+    (observed) rate for that same pair in Transitions.csv.
 
-    Simulated rate calculation (fixed in this revision)
-    ------------------------------------------------------
-    Mirrors how the OBSERVED side already computes rates in
-    calibration.transitions.compute_yearly_transition_counts() /
-    compute_transition_rates(): for each YEAR separately, the eligible
-    source-class pool is taken from THAT year's actual area (not a single
-    pool measured once at the start and held constant), giving that
-    year's real probability; the per-year probabilities are then averaged
-    across years -- an unweighted mean, same convention
-    compute_transition_rates() uses on the observed side.
+    v3.14 -- full redesign, pair-level (see module docstring for the full
+    rationale and the two bugs this eliminates). The atomic unit of
+    computation is now a single (from_class, to_class) pair; `group` is
+    attached afterward purely as a display label and never participates
+    in the rate calculation. Pairs are never pooled together.
 
-    Previously this function measured the pool once, at the first
-    simulated year, and reused that single number for every year in the
-    window (`pool * n_timesteps`) -- understating the true rate for any
-    class whose area moved a lot during the hindcast window, since later
-    years' actual (possibly much smaller) pools were never accounted for.
-    That biased the ratio specifically for classes with large area swings
-    -- which in practice were the hardest classes to correct.
-
-    Since the simulation has multiple stochastic iterations (unlike the
-    single historical record), each year's rate is itself an average
-    across iterations before being averaged across years.
+    Per-year, per-pair rate calculation
+    ------------------------------------
+    For each YEAR separately: the eligible source-class pool is that
+    year's actual area (not a single pool measured once and held
+    constant), converted from hectares to a pixel count via px_area_ha
+    (this conversion is the fix for the unit-mismatch bug -- the
+    numerator, cells transitioned, is always a pixel count, so the
+    denominator must be one too). The per-year rate is then averaged
+    across years -- an unweighted mean, matching the convention
+    calibration.transitions.compute_transition_rates() uses on the
+    observed side. Since the simulation has multiple stochastic
+    iterations, each year's rate is itself an average across iterations
+    before being averaged across years.
 
     Parameters
     ----------
     trans_df    : concatenated transition_log.csv from the hindcast run
                   (iteration, year, row, col, from_class, to_class, group)
     area_df     : concatenated area_table.csv from the hindcast run
-                  (iteration, year, class_id, class_name, area_{unit})
+                  (iteration, year, class_id, class_name, area_{unit} in
+                  hectares -- an "area_" prefixed column)
     transitions_csv_path : path to the calibrated Transitions.csv
                   (StateClassIdSource, StateClassIdDest, TransitionTypeId,
-                  Probability) -- observed rates, one row per group
-                  (TransitionTypeId IS the group column here).
-    n_timesteps : number of years simulated in the hindcast window
-                  (kept for API compatibility; no longer used in the
-                  calculation itself now that rates are computed per-year)
+                  Probability) -- one row per (from, to) pair. Used
+                  directly, without any cross-pair averaging, to look up
+                  each pair's observed_rate and group label.
+    px_area_ha  : pixel area in hectares (e.g. engine.px_area_ha) --
+                  REQUIRED to convert area_df's hectare pool into a pixel
+                  count comparable to trans_df's pixel-count transition
+                  totals.
+    n_timesteps : unused, kept only for call-site backward compatibility
+                  with pre-v3.14 code; rates are computed per-year
+                  regardless of this value.
 
     Returns
     -------
-    DataFrame: group, observed_rate, simulated_rate, ratio, n_years_used
-    (ratio = observed_rate / simulated_rate; NaN where simulated_rate is 0
-    or no valid year had a positive pool; n_years_used reports how many
-    of the window's years actually contributed a rate, so a ratio backed
-    by very few years can be treated with appropriate caution)
+    DataFrame, one row per (from_class, to_class) pair observed in EITHER
+    the calibrated Transitions.csv OR the simulated transition log
+    (union, not intersection -- a pair calibrated but never simulated
+    still appears, with simulated_rate showing exactly how often it
+    fired: 0.0 if the pool existed but nothing converted, NaN if the
+    pool never existed at all in area_df). Columns:
+
+        from_class, to_class  : the pair (atomic unit; never pooled)
+        group                 : TransitionTypeId for this pair from
+                                 Transitions.csv, or the literal "unnamed"
+                                 if the pair has no entry there (simulated
+                                 but not calibrated -- a genuine, surfaced
+                                 gap rather than a silent exclusion or a
+                                 borrowed label from the simulated log)
+        observed_rate         : this pair's own calibrated Probability
+                                 (no averaging across other pairs sharing
+                                 its group)
+        simulated_rate        : this pair's per-year, source-pool-
+                                 conditioned simulated rate (see above)
+        ratio                 : observed_rate / simulated_rate; NaN if
+                                 simulated_rate is 0, NaN, or observed_rate
+                                 is NaN
+        n_years_used          : how many of the window's years actually
+                                 had a positive source-class pool for
+                                 this pair (treat ratios backed by very
+                                 few years with appropriate caution)
+        avg_pool_area_ha      : mean source-class pool (hectares) across
+                                 the years used
+        total_ha_transitioned_observed : observed_rate * avg_pool_area_ha
+                                 * n_years_used -- an ESTIMATE (this
+                                 function has no separate historical pool
+                                 series, only the mean calibrated
+                                 Probability, so the simulated window's
+                                 own average pool is used as the best
+                                 available stand-in). NaN if inputs are
+                                 missing.
+        total_ha_transitioned_simulated : sum, across years used, of
+                                 (mean cells transitioned that year) *
+                                 px_area_ha -- the actual simulated area
+                                 moved by this pair, not an estimate.
+
+    Sorted by total_ha_transitioned_simulated descending (materiality --
+    NaN treated as 0 for sorting only), so pairs that moved the most
+    simulated area surface first.
     """
-    if trans_df.empty:
-        return pd.DataFrame(
-            columns=["group", "observed_rate", "simulated_rate", "ratio", "n_years_used"]
-        )
+    if trans_df.empty and area_df.empty:
+        return pd.DataFrame(columns=_RATE_RATIO_COLUMNS)
 
     acol = next((c for c in area_df.columns if c.startswith("area_")), None)
     if acol is None:
         raise ValueError(f"area_df has no area_* column. Got: {list(area_df.columns)}")
 
     obs_df = pd.read_csv(transitions_csv_path)
-    obs_df["group"] = obs_df["TransitionTypeId"].apply(_strip_type_suffix)
-    observed_rates = obs_df.groupby("group")["Probability"].mean().to_dict()
+    obs_df["group"]      = obs_df["TransitionTypeId"].apply(_strip_type_suffix)
+    obs_df["from_class"] = obs_df["StateClassIdSource"].astype(str).str.split(":").str[0]
+    obs_df["to_class"]   = obs_df["StateClassIdDest"].astype(str).str.split(":").str[0]
 
-    all_iterations = sorted(trans_df["iteration"].unique())
+    obs_map: dict[tuple[str, str], tuple[str, float]] = {}
+    dup_pairs = 0
+    for _, r in obs_df.iterrows():
+        key = (r["from_class"], r["to_class"])
+        if key in obs_map:
+            dup_pairs += 1
+        obs_map[key] = (r["group"], float(r["Probability"]))
+    if dup_pairs:
+        print(f"  [Warning] {dup_pairs} (from,to) pair(s) appear more than "
+              f"once in {transitions_csv_path} -- only the last row's "
+              f"group/Probability was kept per pair (Transitions.csv is "
+              f"expected to have exactly one row per pair).")
 
+    # Pairs the simulator logged (used only to build the pair universe --
+    # NOT as a fallback source of a group label; a pair absent from
+    # Transitions.csv is always labeled "unnamed", regardless of whatever
+    # group the simulated log happens to carry for it, so a real gap in
+    # calibration can't hide behind a borrowed label).
+    sim_pairs: set[tuple[str, str]] = set()
+    if not trans_df.empty:
+        sim_pairs = set(
+            trans_df[["from_class", "to_class"]].drop_duplicates().itertuples(index=False, name=None)
+        )
+
+    all_pairs = sorted(set(obs_map) | sim_pairs)
+    if not all_pairs:
+        return pd.DataFrame(columns=_RATE_RATIO_COLUMNS)
+
+    if not trans_df.empty:
+        all_iterations = sorted(trans_df["iteration"].unique())
+    else:
+        all_iterations = sorted(area_df["iteration"].unique())
+
+    n_unnamed = 0
     rows = []
-    for group, grp_trans in trans_df.groupby("group"):
-        source_classes = grp_trans["from_class"].unique().tolist()
+    for from_class, to_class in all_pairs:
+        obs_group, observed_rate = obs_map.get((from_class, to_class), (None, np.nan))
+        if obs_group is not None:
+            group = obs_group
+        else:
+            group = "unnamed"
+            n_unnamed += 1
 
-        yearly_rates = []
-        for year, grp_year in grp_trans.groupby("year"):
-            # Cells transitioned this year, averaged across iterations
-            # (an iteration with zero transitions this year has no rows
-            # in grp_year at all -- reindex so it correctly counts as 0,
-            # not simply absent from the average).
+        if not trans_df.empty:
+            pair_trans = trans_df[
+                (trans_df["from_class"] == from_class) & (trans_df["to_class"] == to_class)
+            ]
+        else:
+            pair_trans = trans_df  # empty
+
+        years = sorted(area_df.loc[area_df["class_name"] == from_class, "year"].unique())
+
+        yearly_rates: list[float] = []
+        pool_samples_ha: list[float] = []
+        total_ha_simulated = 0.0
+
+        for year in years:
+            grp_year = pair_trans[pair_trans["year"] == year] if not pair_trans.empty else pair_trans
             n_by_iter = (
-                grp_year.groupby("iteration").size()
-                .reindex(all_iterations, fill_value=0)
+                grp_year.groupby("iteration").size().reindex(all_iterations, fill_value=0)
+                if not grp_year.empty else pd.Series(0, index=all_iterations)
             )
             mean_n_transitioned = n_by_iter.mean()
 
-            # This YEAR's actual source-class pool, averaged across
-            # iterations -- the fix: was a single value from year 1 used
-            # for every year; now it's this year's real area.
             year_area = area_df[
-                (area_df["year"] == year) & (area_df["class_name"].isin(source_classes))
+                (area_df["year"] == year) & (area_df["class_name"] == from_class)
             ]
             pool_by_iter = year_area.groupby("iteration")[acol].sum()
             if pool_by_iter.empty:
                 continue
-            mean_pool = pool_by_iter.reindex(all_iterations, fill_value=0.0).mean()
+            mean_pool_ha = pool_by_iter.reindex(all_iterations, fill_value=0.0).mean()
+            if not mean_pool_ha or mean_pool_ha <= 0:
+                continue
 
-            if mean_pool and mean_pool > 0:
-                yearly_rates.append(mean_n_transitioned / mean_pool)
+            pool_samples_ha.append(mean_pool_ha)
+            mean_pool_px = mean_pool_ha / px_area_ha
+            yearly_rates.append(mean_n_transitioned / mean_pool_px)
+            total_ha_simulated += mean_n_transitioned * px_area_ha
 
         simulated_rate = float(np.mean(yearly_rates)) if yearly_rates else np.nan
-        n_years_used = len(yearly_rates)
+        n_years_used   = len(yearly_rates)
+        avg_pool_area_ha = float(np.mean(pool_samples_ha)) if pool_samples_ha else np.nan
 
-        observed_rate = observed_rates.get(group, np.nan)
         ratio = (
             observed_rate / simulated_rate
-            if simulated_rate and not np.isnan(simulated_rate) and simulated_rate > 0
+            if (n_years_used and not np.isnan(simulated_rate)
+                and simulated_rate > 0 and not np.isnan(observed_rate))
+            else np.nan
+        )
+
+        total_ha_observed = (
+            observed_rate * avg_pool_area_ha * n_years_used
+            if (n_years_used and not np.isnan(observed_rate) and not np.isnan(avg_pool_area_ha))
             else np.nan
         )
 
         rows.append({
-            "group":          group,
-            "observed_rate":  observed_rate,
-            "simulated_rate": simulated_rate,
-            "ratio":          ratio,
-            "n_years_used":   n_years_used,
+            "from_class":      from_class,
+            "to_class":        to_class,
+            "group":           group,
+            "observed_rate":   observed_rate,
+            "simulated_rate":  simulated_rate,
+            "ratio":           ratio,
+            "n_years_used":    n_years_used,
+            "avg_pool_area_ha": avg_pool_area_ha,
+            "total_ha_transitioned_observed":  total_ha_observed,
+            "total_ha_transitioned_simulated": total_ha_simulated if n_years_used else np.nan,
         })
 
-    return pd.DataFrame(rows).sort_values("group").reset_index(drop=True)
+    result = pd.DataFrame(rows, columns=_RATE_RATIO_COLUMNS)
+    result = result.sort_values(
+        by="total_ha_transitioned_simulated",
+        key=lambda s: s.fillna(0.0),
+        ascending=False,
+    ).reset_index(drop=True)
+
+    print(f"  compute_pathway_rate_ratios: {len(result)} (from,to) pair(s) "
+          f"({n_unnamed} 'unnamed' -- simulated but absent from "
+          f"Transitions.csv)")
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -353,10 +531,28 @@ def correct_multipliers(
         raise ValueError(f"Unknown method '{method}'. Use 'scaling' or 'optimize'.")
 
     if method == "scaling":
+        # v3.14: rate_ratios is now pair-level (compute_pathway_rate_ratios()
+        # redesign) -- a group spanning multiple (from,to) pairs can appear
+        # more than once here with DIFFERING ratios. TransitionMultipliers.csv
+        # is keyed by group, not by pair, so only one ratio per group can be
+        # applied; a naive dict build would silently keep whichever row
+        # happened to iterate last. Detect and flag this explicitly instead.
+        valid = rate_ratios[pd.notna(rate_ratios["ratio"])]
+        group_ratio_counts = valid.groupby("group")["ratio"].nunique()
+        collided = group_ratio_counts[group_ratio_counts > 1]
+        if not collided.empty:
+            print(
+                f"  [Warning] {len(collided)} group(s) span multiple (from,to) "
+                f"pairs with DIFFERING ratios -- TransitionMultipliers.csv can "
+                f"only apply one scale per group, so only the LAST pair's "
+                f"ratio is used for each: {sorted(collided.index)}. "
+                f"Recommended fix: split these into separately-calibrated "
+                f"TransitionTypeId groups (one pair per group) at the "
+                f"group_map stage so each group maps to exactly one ratio."
+            )
         scale_by_group = {
             row["group"]: row["ratio"]
-            for _, row in rate_ratios.iterrows()
-            if pd.notna(row["ratio"])
+            for _, row in valid.iterrows()
         }
         return _apply_group_scales(
             scale_by_group, transition_mult_csv_path, distributions_csv_path, bounds
