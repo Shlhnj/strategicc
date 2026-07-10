@@ -1,6 +1,6 @@
 from .transitions import build_transition_index, TransitionRecord
 from .adjacency   import compute_neighbor_fractions
-from .spatial     import load_spatial_multipliers
+from .spatial     import load_spatial_multipliers, resolve_spatial_multipliers_per_timestep
 from .multipliers import sample_transition_multipliers, describe_multiplier_rules
 from .age         import (
     build_initial_age_from_raster,
@@ -25,6 +25,7 @@ __all__ = [
     "TransitionRecord",
     "compute_neighbor_fractions",
     "load_spatial_multipliers",
+    "resolve_spatial_multipliers_per_timestep",
     "sample_transition_multipliers",
     "describe_multiplier_rules",
     "build_initial_age_from_raster",
