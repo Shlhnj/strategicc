@@ -1,5 +1,5 @@
 """
-strategicc/engine.py  —  v2.5
+strategicc/engine.py  --  v2.5
 ------------------------------
 StrategiccEngine: main simulation class with multi-iteration support.
 
@@ -38,7 +38,9 @@ from strategicc.io.csv_loader import (
 )
 from strategicc.core.transitions import build_transition_index, TransitionRecord
 from strategicc.core.adjacency   import compute_neighbor_fractions
-from strategicc.core.spatial     import load_spatial_multipliers, get_multiplier
+from strategicc.core.spatial     import (
+    load_spatial_multipliers, resolve_spatial_multipliers_per_timestep, get_multiplier,
+)
 from strategicc.core.multipliers import (
     sample_transition_multipliers,
     describe_multiplier_rules,
@@ -75,7 +77,8 @@ class StrategiccEngine:
     ---------------------------
     classes          : dict[int, StateClass]
     trans_index      : TransitionIndex
-    spatial_mults    : dict[str, np.ndarray]
+    spatial_mults    : dict[str, list[tuple[int | None, np.ndarray]]]  ← v3.15
+    spatial_mults_by_timestep : dict[int, dict[str, np.ndarray | None]]  ← v3.15
     trans_mult_rules : list[TransitionMultiplierRule]
     ecosystem_services: list[EcosystemService]   ← v2.0
 
@@ -162,6 +165,7 @@ class StrategiccEngine:
         self.classes:             dict  = {}
         self.trans_index:         dict  = {}
         self.spatial_mults:       dict  = {}
+        self.spatial_mults_by_timestep: dict = {}   # v3.15
         self.trans_mult_rules:    list  = []
         self.distributions:       dict  = {}   # v3.6.1 — {name: DistributionEntry}
         self.ecosystem_services:  list  = []
@@ -270,6 +274,13 @@ class StrategiccEngine:
             self.spatial_mults = load_spatial_multipliers(
                 entries, resolved_mult_dir, lulc.shape,
                 reference_crs=self._crs_info,   # v3.6
+            )
+            # v3.15 — forward-fill any Timestep-tagged entries into an
+            # explicit per-timestep lookup. Groups with only a single,
+            # timestep=None entry resolve to that same array at every t,
+            # so pre-v3.15 static-raster configs are unaffected.
+            self.spatial_mults_by_timestep = resolve_spatial_multipliers_per_timestep(
+                self.spatial_mults, self.n_timesteps,
             )
         else:
             print("  [Skipped — USE_SPATIAL_MULT=False]")
@@ -537,10 +548,17 @@ class StrategiccEngine:
         print(f"\n  All iterations complete. Results in '{self.out_dir}'")
 
     def diagnostic(self) -> None:
-        """Print expected transitions per class/group (no multipliers applied)."""
+        """Print expected transitions per class/group (no multipliers applied).
+
+        Runs before the simulation loop, so there's no "current timestep" to
+        report against. Uses t=0 (the first simulated timestep) — for groups
+        with a time-varying (v3.15) spatial multiplier, this reflects only
+        the starting-year raster, not later vintages that will take over
+        mid-run.
+        """
         lulc  = self._initial_lulc
         shape = lulc.shape
-        print("\n[DIAGNOSTIC] Expected transitions per timestep (base probs only):")
+        print("\n[DIAGNOSTIC] Expected transitions per timestep (base probs only, t=0):")
         for from_id, outgoing in self.trans_index.items():
             n_cells = int(np.sum(lulc == from_id))
             if n_cells == 0 or not outgoing:
@@ -548,7 +566,7 @@ class StrategiccEngine:
             sc = self.classes[from_id]
             print(f"\n  Class {from_id} ({sc.name}): {n_cells:,} cells")
             for to_id, base_prob, group in outgoing:
-                mult      = get_multiplier(self.spatial_mults, group, shape)
+                mult      = get_multiplier(self.spatial_mults_by_timestep, group, shape, t=0)
                 mean_mult = float(mult[lulc == from_id].mean())
                 expected  = n_cells * base_prob * mean_mult
                 to_name   = self.classes[to_id].name
@@ -702,9 +720,12 @@ class StrategiccEngine:
                         reachable = np.ones(shape, dtype=bool)
                         adj_mult  = ones
 
-                    # 4. Spatial multiplier
+                    # 4. Spatial multiplier (v3.15 — resolved per timestep;
+                    # a group whose earliest raster is later than the
+                    # current t gets ones/no-effect, never an early peek
+                    # at a future-vintage raster)
                     sp_mult = (
-                        get_multiplier(self.spatial_mults, group, shape)
+                        get_multiplier(self.spatial_mults_by_timestep, group, shape, t=t)
                         if self.use_spatial_mult else ones
                     )
 
