@@ -46,6 +46,8 @@ If `FetchInitialStateClassFromZip=True`, `StateClassFileName` is ignored and the
 | `ECOSYSTEM_SERVICES_CSV` | `ECOSYSTEM_SERVICES_CSV` |
 | `AGE_INITIAL_CSV` | `AGE_INITIAL_CSV` |
 | `TRANSITION_SIZE_CSV` | `TRANSITION_SIZE_CSV` |
+| `TRANSITION_TARGETS_CSV` | `TRANSITION_TARGETS_CSV` — optional; only needed for target-driven (manmade) transition pathways, see [core reference](reference/core.md#targets) |
+| `DISTRIBUTIONS_CSV` | `DISTRIBUTIONS_CSV` — optional; only needed if a transition group's multiplier uses a named (non-Uniform) empirical distribution |
 | `TRANSITION_ADJACENCY_SETTING_CSV` / `TRANSITION_ADJACENCY_MULT_CSV` | same names |
 | `TERMINOLOGY_CSV` | `TERMINOLOGY_CSV` |
 | `MULT_DIR` | `MULT_DIR` — folder or `.zip` (auto-extracted once to a sibling folder) |

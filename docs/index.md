@@ -36,10 +36,19 @@ The package is organized into subpackages, each documented separately:
 | [`core`](reference/core.md) | Transition firing mechanics: adjacency, age, patch growth, targets |
 | [`io`](reference/io.md) | Raster and CSV reading/writing |
 | [`calibration`](reference/calibration.md) | Derive inputs from a historical LULC time series |
+| [`validation`](reference/validation.md) | Hindcast validation, spatial agreement metrics, calibration correction |
 | [`stockflow`](reference/stockflow.md) | Carbon (or other material) Stock & Flow accounting |
 | [`accounting`](reference/accounting.md) | SEEA-EA ecosystem accounts |
 | [`outputs`](reference/outputs.md) | Aggregation across iterations, plots |
 | [`animate`](reference/animate.md) | Two-panel LULC + valuation GIF/MP4 |
+
+## QGIS plugin
+
+A QGIS dock-panel plugin wraps the full pipeline (setup, run, calibration,
+hindcast/correction, SEEA-EA) as file-picker-driven forms and background
+tasks, so scenarios can be built and run without touching Python or a
+manifest file directly. Not part of this repository — ask the plugin's
+maintainer for the current build.
 
 ## Worked examples
 
