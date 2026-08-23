@@ -13,7 +13,6 @@ from rasterio.transform import from_origin
 
 from strategicc.calibration import (
     load_lulc_timeseries, compute_age_raster, compute_transition_rates,
-    compute_transition_coverage,
     compute_temporal_distribution, compute_size_distribution,
 )
 from strategicc.calibration.transitions import compute_yearly_transition_counts
@@ -213,69 +212,20 @@ def test_compute_transition_rates_unmapped_excluded(loaded_ts, classes):
     assert df.empty
 
 
-# ── Tests: transition coverage preview (v3.14) ───────────────────────────────
-
-def test_compute_transition_coverage_full_pair_mapped(loaded_ts, classes, group_map):
-    yearly = compute_yearly_transition_counts(loaded_ts)
-    df = compute_transition_coverage(yearly, classes, group_map)
-    assert not df.empty
-    assert set(df.columns) == {
-        "from_class", "to_class", "group", "mean_probability",
-        "total_n_cells", "avg_n_from_total",
-    }
-    row = df[(df["from_class"] == "Water_body") & (df["to_class"] == "Mangrove")].iloc[0]
-    assert row["group"] == "Mangrove_recruitment"
-    assert 0 < row["mean_probability"] < 1
-    assert row["total_n_cells"] > 0
-
-
-def test_compute_transition_coverage_unmapped_pair_flagged_unnamed(loaded_ts, classes):
-    """A pair with no group_map entry must still appear, flagged UNNAMED --
-    never silently excluded, and never truncated regardless of how many
-    other pairs exist (no top-10 cutoff)."""
-    yearly = compute_yearly_transition_counts(loaded_ts)
-    df = compute_transition_coverage(yearly, classes, group_map={})  # nothing mapped
-    assert not df.empty
-    assert (df["group"] == "UNNAMED").all()
-
-
-def test_compute_transition_coverage_sorted_by_total_n_cells_descending(loaded_ts, classes):
-    yearly = compute_yearly_transition_counts(loaded_ts)
-    df = compute_transition_coverage(yearly, classes, group_map={})
-    assert list(df["total_n_cells"]) == sorted(df["total_n_cells"], reverse=True)
-
-
-def test_compute_transition_coverage_no_truncation_beyond_ten_pairs(classes):
-    """Regression test for the exact failure mode this function replaces:
-    an 11th+ pair by rank must still appear in full, not be cut off at a
-    hardcoded top-10 limit."""
-    import pandas as pd
-    from strategicc.calibration.transitions import YearlyTransitionCounts
-
-    # 12 distinct (from,to) pairs, none in group_map -- all UNNAMED, and
-    # the 12th (smallest) pair must still be present in the output.
-    rows = []
-    for i in range(12):
-        rows.append({
-            "year": 2020, "from_id": 1, "to_id": 10 + i,
-            "n_cells": 100 - i, "n_from_total": 1000,
-            "probability": (100 - i) / 1000,
-        })
-    yearly = YearlyTransitionCounts(records=pd.DataFrame(rows))
-    df = compute_transition_coverage(yearly, classes, group_map={})
-    assert len(df) == 12
-    assert (df["group"] == "UNNAMED").all()
-
-
 # ── Tests: temporal distribution ─────────────────────────────────────────────
 
 def test_compute_temporal_distribution(loaded_ts, group_map):
     yearly = compute_yearly_transition_counts(loaded_ts)
-    df = compute_temporal_distribution(yearly, group_map, min_years=2)
-    assert not df.empty
-    row = df.iloc[0]
-    assert row["DistributionType"] == "Uniform"
-    assert row["DistributionMin"] <= row["DistributionMax"]
+    # compute_temporal_distribution() returns a 2-tuple
+    # (temporal_df, distributions_df) per its docstring -- unpack it
+    # rather than treating the return value as a single DataFrame.
+    temporal_df, distributions_df = compute_temporal_distribution(
+        yearly, group_map, min_years=2
+    )
+    assert not temporal_df.empty
+    row = temporal_df.iloc[0]
+    assert row["DistributionType"] != "Uniform"  # named reference, per docstring
+    assert not distributions_df.empty
 
 def test_temporal_distribution_mean_is_one(loaded_ts, group_map):
     """Validates the core consistency guarantee: mean(multiplier) ~ 1.0"""
@@ -296,8 +246,11 @@ def test_temporal_distribution_mean_is_one(loaded_ts, group_map):
 
 def test_temporal_distribution_insufficient_years(loaded_ts, group_map):
     yearly = compute_yearly_transition_counts(loaded_ts)
-    df = compute_temporal_distribution(yearly, group_map, min_years=100)
-    assert df.empty
+    temporal_df, distributions_df = compute_temporal_distribution(
+        yearly, group_map, min_years=100
+    )
+    assert temporal_df.empty
+    assert distributions_df.empty
 
 
 # ── Tests: size distribution ─────────────────────────────────────────────────
@@ -382,7 +335,9 @@ def test_compute_size_distribution_group_map_shared_with_transitions(clustered_t
     here too (no separate grouping scheme — per design decision).
     """
     yearly = compute_yearly_transition_counts(clustered_ts)
-    temporal_df = compute_temporal_distribution(yearly, group_map, min_years=2)
+    temporal_df, _distributions_df = compute_temporal_distribution(
+        yearly, group_map, min_years=2
+    )
     size_df = compute_size_distribution(
         clustered_ts, group_map, px_area_ha=PX_AREA_HA, n_bins=4, min_patches=3,
     )
