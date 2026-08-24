@@ -1,7 +1,28 @@
 """
-strategicc/accounting/seea.py  —  SEEA-EA accounting engine  v3.3
+strategicc/accounting/seea.py  —  SEEA-EA accounting engine  v3.4
 ------------------------------------------------------------------
 Produces all ecosystem accounts from simulation outputs.
+
+v3.4 changes (strategicc 3.17)
+-------------------------------
+* extent_account() gained a Total column (sum across classes per year).
+  Under an area-conserved run this stays constant year to year, which
+  is the built-in check SEEA EA's own Total row/column is meant to
+  give the compiler. This was missing entirely before.
+* New extent_account_seea() produces the ecosystem extent account in
+  the actual layout of SEEA EA Table 4.1: rows are accounting entries
+  (Opening extent, Additions, Reductions, Net change in extent,
+  Closing extent) per accounting period, columns are ecosystem types
+  plus Total. extent_account() itself is unchanged in shape (still a
+  flat year-by-class time series) and remains the right input for
+  plotting/summary use; extent_account_seea() is the one that actually
+  matches the standard's own table structure and is what should be
+  cited/reported as "the SEEA EA extent account" in an accounting
+  report. Additions/Reductions are derived from trans_df (the
+  transition log), so trans_df must be supplied to SEEAAccount for
+  this method to work. Managed/unmanaged splitting is optional and
+  opt-in via managed_groups=, since SEEA EA leaves that classification
+  to the compiler and STRATEGICC cannot infer it from the data alone.
 
 v3.3 changes
 ------------
@@ -205,9 +226,17 @@ class SEEAAccount:
 
     def extent_account(self) -> pd.DataFrame:
         """
-        Ecosystem extent account.
-        Rows: year. Columns: one per class (area in chosen unit).
+        Ecosystem extent account (flat time series).
+        Rows: year. Columns: one per class (area in chosen unit) + Total.
         Derived from modal LULC maps — spatially consistent.
+
+        v3.4: added the Total column (sum across classes for that year).
+        Under an area-conserved run this should stay constant year to
+        year — it is the area-conservation check SEEA EA's own Total
+        row/column is meant to provide. This is a flat per-year table,
+        not the period-structured (Opening/Additions/Reductions/Net
+        change/Closing) layout of SEEA EA Table 4.1 — use
+        extent_account_seea() for that.
         """
         pivot = self.area_modal_df.pivot_table(
             index="year", columns="class_name",
@@ -215,8 +244,146 @@ class SEEAAccount:
         ).fillna(0)
         pivot.columns.name = None
         pivot.index.name   = f"Year"
+        pivot["Total"] = pivot.sum(axis=1)
         pivot.attrs["unit"] = self._unit_label
         return pivot
+
+    def extent_account_seea(
+        self,
+        managed_groups: set[str] | None = None,
+    ) -> pd.DataFrame:
+        """
+        Ecosystem extent account in SEEA EA Table 4.1 layout (v3.4, new
+        in strategicc 3.17).
+
+        One block per accounting period (year t -> year t+1): Opening
+        extent, Additions, Reductions, Net change in extent, Closing
+        extent. Columns are ecosystem classes plus a Total column, so
+        area conservation can be checked directly per period.
+
+        Opening/Closing extent for each period come from
+        extent_account() (the class-by-class extent already derived
+        from area_modal_df). Additions/Reductions per class are derived
+        from trans_df (the per-timestep transition log): for a period
+        year_t -> year_t+1, Additions to a class are the areas that
+        flowed IN from every other class during that step; Reductions
+        are the areas that flowed OUT to every other class. Both
+        Net change (Additions - Reductions) and the reconciled
+        Closing - Opening are useful cross-checks of each other, but
+        only Net change (Additions - Reductions) is reported as a row,
+        matching SEEA EA's own layout; if it disagrees with
+        Closing - Opening derived from extent_account(), that signals
+        the modal-map closing extent and the logged transitions have
+        drifted apart (e.g. from cells changing class more than once
+        within a period), which is worth checking in the run output.
+
+        managed_groups : optional set of transition `group` names (as
+            used in transition_log.csv / TransitionGroups.csv) to treat
+            as "managed". If given, Additions and Reductions are each
+            further split into managed/unmanaged rows, per SEEA EA's
+            optional finer breakdown. SEEA EA leaves the managed vs.
+            unmanaged classification to the compiler; STRATEGICC cannot
+            infer it automatically, hence this is opt-in. If omitted,
+            Additions/Reductions are each reported as a single
+            (undivided) row.
+
+        Returns
+        -------
+        DataFrame with a MultiIndex (Period, Entry) on the rows and
+        columns [class_name, ..., Total]. Written to CSV this reads as
+        one block of rows per accounting period, in Table 4.1's own
+        row order.
+        """
+        if self.trans_df is None or self.trans_df.empty:
+            raise ValueError(
+                "extent_account_seea() requires trans_df (the "
+                "transition log) to derive Additions/Reductions per "
+                "period — pass trans_df= when constructing SEEAAccount."
+            )
+
+        extent = self.extent_account()
+        class_names = [c for c in extent.columns if c != "Total"]
+        years = list(extent.index)
+        if len(years) < 2:
+            raise ValueError(
+                "extent_account_seea() needs at least two years of "
+                "extent data to form one accounting period."
+            )
+
+        group_key = [] if managed_groups is None else ["group"]
+        counts = (
+            self.trans_df
+            .groupby(["iteration", "year", "from_class", "to_class"] + group_key)
+            .size()
+            .reset_index(name="n_cells")
+        )
+        median_counts = (
+            counts.groupby(["year", "from_class", "to_class"] + group_key)["n_cells"]
+            .median()
+            .reset_index()
+        )
+        median_counts["area"] = median_counts["n_cells"] * self.px_area
+
+        def _flow(period_start_year: int, direction: str, tag: str | None) -> pd.Series:
+            # direction: "in" (additions, group by to_class) or
+            # "out" (reductions, group by from_class). `year` on a
+            # TransitionRecord is the OPENING year of that step, i.e.
+            # the transition from state[year] to state[year+1] — so a
+            # period year_t -> year_t+1 is looked up by year==year_t.
+            sub = median_counts[median_counts["year"] == period_start_year]
+            if tag is not None:
+                is_managed = sub["group"].isin(managed_groups)
+                sub = sub[is_managed] if tag == "Managed" else sub[~is_managed]
+            col = "to_class" if direction == "in" else "from_class"
+            out = sub.groupby(col)["area"].sum()
+            return out.reindex(class_names).fillna(0.0)
+
+        rows: list[tuple[tuple[str, str], dict]] = []
+        for i in range(len(years) - 1):
+            y0, y1 = years[i], years[i + 1]
+            period = f"{y0}\u2013{y1}"
+            opening = extent.loc[y0, class_names]
+            closing = extent.loc[y1, class_names]
+
+            if managed_groups is None:
+                additions  = _flow(y0, "in", None)
+                reductions = _flow(y0, "out", None)
+                entries = [
+                    ("Opening extent",       opening),
+                    ("Additions",            additions),
+                    ("Reductions",           reductions),
+                    ("Net change in extent", additions - reductions),
+                    ("Closing extent",       closing),
+                ]
+            else:
+                add_m = _flow(y0, "in", "Managed")
+                add_u = _flow(y0, "in", "Unmanaged")
+                red_m = _flow(y0, "out", "Managed")
+                red_u = _flow(y0, "out", "Unmanaged")
+                net = (add_m + add_u) - (red_m + red_u)
+                entries = [
+                    ("Opening extent",                  opening),
+                    ("Additions — managed expansions",  add_m),
+                    ("Additions — unmanaged expansions", add_u),
+                    ("Reductions — managed reductions",  red_m),
+                    ("Reductions — unmanaged reductions", red_u),
+                    ("Net change in extent",             net),
+                    ("Closing extent",                   closing),
+                ]
+
+            for entry_name, series in entries:
+                series = pd.Series(series, index=class_names).astype(float)
+                row = series.to_dict()
+                row["Total"] = float(series.sum())
+                rows.append(((period, entry_name), row))
+
+        index = pd.MultiIndex.from_tuples(
+            [r[0] for r in rows], names=["Period", "Entry"]
+        )
+        df = pd.DataFrame([r[1] for r in rows], index=index,
+                           columns=class_names + ["Total"])
+        df.attrs["unit"] = self._unit_label
+        return df
 
     def transition_matrix(self) -> pd.DataFrame:
         """

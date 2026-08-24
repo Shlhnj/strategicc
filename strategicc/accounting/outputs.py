@@ -51,6 +51,14 @@ def save_all_accounts(
     acct.extent_account().to_csv(out_dir / "seea_extent_account.csv")
     print(f"  Saved: seea_extent_account.csv")
 
+    if acct.trans_df is not None and not acct.trans_df.empty:
+        acct.extent_account_seea().to_csv(out_dir / "seea_extent_account_table4_1.csv")
+        print(f"  Saved: seea_extent_account_table4_1.csv")
+    else:
+        print(f"  [Skipped] seea_extent_account_table4_1.csv — no trans_df "
+              f"was provided to SEEAAccount (pass trans_df= to enable the "
+              f"SEEA EA Table 4.1 formatted extent account)")
+
     acct.transition_matrix().to_csv(out_dir / "seea_transition_matrix_area.csv")
     print(f"  Saved: seea_transition_matrix_area.csv")
 
