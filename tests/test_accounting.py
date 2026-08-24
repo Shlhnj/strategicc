@@ -108,15 +108,74 @@ def test_modal_area_values():
 
 def test_extent_account_shape():
     ea = make_acct().extent_account()
-    assert ea.shape == (3, 2)   # 3 years × 2 classes
+    assert ea.shape == (3, 3)   # 3 years × (2 classes + Total)
     assert "Forest" in ea.columns
     assert "Cropland" in ea.columns
+    assert "Total" in ea.columns
+
+def test_extent_account_total_column():
+    """Total column should equal the row sum, i.e. conserved landscape area."""
+    ea = make_acct().extent_account()
+    assert ea.loc[2022, "Total"] == pytest.approx(0.06)   # 3 Forest + 3 Cropland, px_area 0.01
+    for year in ea.index:
+        assert ea.loc[year, "Total"] == pytest.approx(0.06)
 
 def test_extent_account_values():
     ea = make_acct().extent_account()
     assert ea.loc[2022, "Forest"]   == pytest.approx(0.03)
     assert ea.loc[2024, "Forest"]   == pytest.approx(0.01)
     assert ea.loc[2024, "Cropland"] == pytest.approx(0.05)
+
+def test_extent_account_seea_shape_and_periods():
+    """Table 4.1 layout: one 5-row block (Opening/Additions/Reductions/
+    Net change/Closing) per accounting period, classes + Total columns."""
+    seea_ea = make_acct().extent_account_seea()
+    periods = seea_ea.index.get_level_values("Period").unique().tolist()
+    assert periods == ["2022–2023", "2023–2024"]
+    entries = seea_ea.loc["2022–2023"].index.tolist()
+    assert entries == [
+        "Opening extent", "Additions", "Reductions",
+        "Net change in extent", "Closing extent",
+    ]
+    assert list(seea_ea.columns) == ["Cropland", "Forest", "Total"]
+
+def test_extent_account_seea_reconciles():
+    """Net change in extent should equal Closing - Opening for the period
+    that trans_df actually has transition data for (2022→2023)."""
+    seea_ea = make_acct().extent_account_seea()
+    block = seea_ea.loc["2022–2023"]
+    opening = block.loc["Opening extent"]
+    closing = block.loc["Closing extent"]
+    net     = block.loc["Net change in extent"]
+    for col in ["Forest", "Cropland", "Total"]:
+        assert net[col] == pytest.approx(closing[col] - opening[col])
+
+def test_extent_account_seea_additions_reductions_values():
+    """make_trans_df logs 2 Forest->Cropland transitions (2 iterations,
+    1 pixel each, px_area=0.01) in year 2022 -> median across iterations
+    = 1 pixel = 0.01 ha moved."""
+    seea_ea = make_acct().extent_account_seea()
+    block = seea_ea.loc["2022–2023"]
+    assert block.loc["Additions", "Cropland"]  == pytest.approx(0.01)
+    assert block.loc["Additions", "Forest"]    == pytest.approx(0.0)
+    assert block.loc["Reductions", "Forest"]   == pytest.approx(0.01)
+    assert block.loc["Reductions", "Cropland"] == pytest.approx(0.0)
+
+def test_extent_account_seea_managed_split():
+    seea_ea = make_acct().extent_account_seea(
+        managed_groups={"Agriculture_expansion"}
+    )
+    entries = seea_ea.loc["2022–2023"].index.tolist()
+    assert "Additions — managed expansions" in entries
+    assert "Additions — unmanaged expansions" in entries
+    block = seea_ea.loc["2022–2023"]
+    assert block.loc["Additions — managed expansions", "Cropland"] == pytest.approx(0.01)
+    assert block.loc["Additions — unmanaged expansions", "Cropland"] == pytest.approx(0.0)
+
+def test_extent_account_seea_requires_trans_df():
+    acct = make_acct(trans_df=pd.DataFrame())
+    with pytest.raises(ValueError):
+        acct.extent_account_seea()
 
 def test_monetary_flow_account():
     mf = make_acct().monetary_flow_account()
