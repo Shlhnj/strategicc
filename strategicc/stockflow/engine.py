@@ -76,10 +76,34 @@ def build_age_attribute_cache(
     attribute_type:   str,
     class_map:        np.ndarray | None = None,
     classes:          dict | None = None,
+    px_area_ha:       float | None = None,
 ) -> np.ndarray:
     """
     Vectorise the age-bracket lookup for a State Attribute across an
     entire age raster (per-cell Python lookups would be far too slow).
+
+    v3.19 — BUG FIX: added px_area_ha. State Attribute Values.csv's
+    Value column is a PER-HECTARE density (e.g. "48.28 MgC per
+    hectare"), the same convention EcosystemServices.csv's
+    ValuePerUnitArea uses. But unlike EcosystemServices pricing (which
+    correctly does area_ha = area * self._ha_per_unit before
+    multiplying — see accounting/seea.py's _service_monetary_value()),
+    this function previously assigned the raw per-hectare density
+    straight into each grid cell with no conversion — treating a cell
+    that's actually only px_area_ha hectares in size as if it held a
+    full hectare's worth of material. Once aggregated across a class's
+    cells (aggregate_stock_by_class()'s plain .sum()), every
+    state-attribute-sourced stock or flow was inflated by exactly
+    1/px_area_ha (≈11.18x for a typical 0.0895 ha pixel) — invisible
+    before v3.18's class-scoping fix, since stocks were always zero
+    until then, so there was nothing to inflate. Now multiplies the
+    looked-up per-hectare value by px_area_ha before returning, so the
+    per-cell array holds a true per-cell quantity and downstream sums
+    reconstruct the correct landscape total. px_area_ha=None (the old
+    call signature) keeps the OLD unconverted behavior — with a
+    one-time printed warning, since that's very likely wrong for any
+    real project — rather than silently changing existing callers'
+    numbers with no notice.
 
     v3.18: added class_map/classes. Without them (the old call
     signature), every lookup passes state_class=None — which
@@ -104,6 +128,14 @@ def build_age_attribute_cache(
     float32 array, shape matching age_map. Cells with no matching rule
     get value 0.0.
     """
+    if px_area_ha is None:
+        print(f"  [Warning] build_age_attribute_cache('{attribute_type}') "
+              f"called without px_area_ha — State Attribute values are "
+              f"per-hectare densities and will be used UNCONVERTED per "
+              f"cell, almost certainly inflating any aggregated total by "
+              f"1/px_area_ha. Pass px_area_ha=engine.px_area_ha to fix.")
+        px_area_ha = 1.0
+
     out = np.zeros(age_map.shape, dtype=np.float32)
 
     if class_map is None or classes is None:
@@ -117,7 +149,7 @@ def build_age_attribute_cache(
             )
             age_to_value[int(age)] = val if val is not None else 0.0
         for age, val in age_to_value.items():
-            out[age_map == age] = val
+            out[age_map == age] = val * px_area_ha
         return out
 
     full_name_by_id = {cid: sc.full_name for cid, sc in classes.items()}
@@ -134,7 +166,7 @@ def build_age_attribute_cache(
             )
             if val is None:
                 continue
-            out[cls_mask & (age_map == age)] = val
+            out[cls_mask & (age_map == age)] = val * px_area_ha
     return out
 
 
@@ -146,6 +178,7 @@ def init_stocks(
     age_map:          np.ndarray | None,
     class_map:        np.ndarray | None = None,
     classes:          dict | None = None,
+    px_area_ha:       float | None = None,
 ) -> dict[str, np.ndarray]:
     """
     Build the initial (t=0) stock arrays. For each stock type linked via
@@ -156,12 +189,22 @@ def init_stocks(
     docstring for why this matters: State Attribute Values.csv rows are
     normally scoped to a specific class, e.g. "Mangrove:All", and without
     class information those rows can never match, silently zeroing every
-    stock regardless of what the CSV specifies).
+    stock regardless of what the CSV specifies), AND converted from a
+    per-hectare density into a per-cell quantity via px_area_ha (v3.19 —
+    see build_age_attribute_cache() docstring; without this every
+    aggregated stock total is inflated by 1/px_area_ha).
     """
     stocks: dict[str, np.ndarray] = {}
     full_name_by_id = (
         {cid: sc.full_name for cid, sc in classes.items()} if classes else {}
     )
+    if px_area_ha is None:
+        print(f"  [Warning] init_stocks() called without px_area_ha — "
+              f"State Attribute values are per-hectare densities and will "
+              f"be used UNCONVERTED per cell, almost certainly inflating "
+              f"every stock total by 1/px_area_ha. Pass "
+              f"px_area_ha=engine.px_area_ha to fix.")
+        px_area_ha = 1.0
     for stock_type in stock_types:
         arr = np.zeros(shape, dtype=np.float32)
         attr = initial_links.get(stock_type)
@@ -169,7 +212,7 @@ def init_stocks(
             if age_map is not None:
                 arr = build_age_attribute_cache(
                     age_map, state_attr_rules, attr,
-                    class_map=class_map, classes=classes,
+                    class_map=class_map, classes=classes, px_area_ha=px_area_ha,
                 )
             elif class_map is not None and classes is not None:
                 # No age tracking, but we do know each cell's class —
@@ -182,11 +225,11 @@ def init_stocks(
                         state_attr_rules, attr, age=0, state_class=class_name
                     )
                     if val is not None:
-                        arr[class_map == class_id] = val
+                        arr[class_map == class_id] = val * px_area_ha
             else:
                 val = lookup_state_attribute(state_attr_rules, attr, age=0)
                 if val is not None:
-                    arr[:] = val
+                    arr[:] = val * px_area_ha
         stocks[stock_type] = arr
     return stocks
 
@@ -203,6 +246,7 @@ def run_flows_for_timestep(
     flow_mult_sample:           dict[str, float],
     lulc_map:                    np.ndarray | None = None,
     default_flow_order:          int = 999,
+    px_area_ha:                   float | None = None,
 ) -> tuple[dict[str, np.ndarray], list[FlowRecord]]:
     """
     Run all flow pathways for one timestep, mutating and returning updated
@@ -291,7 +335,7 @@ def run_flows_for_timestep(
             if age_map is not None:
                 source_qty = build_age_attribute_cache(
                     age_map, state_attr_rules, rule.state_attribute,
-                    class_map=lulc_map, classes=classes,
+                    class_map=lulc_map, classes=classes, px_area_ha=px_area_ha,
                 )
             else:
                 source_qty = np.zeros(shape, dtype=np.float32)
