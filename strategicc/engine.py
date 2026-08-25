@@ -63,7 +63,7 @@ from strategicc.stockflow import (
     load_stock_groups, load_stock_group_membership,
     load_state_attribute_types, load_state_attribute_values,
     load_flow_pathways, load_flow_multipliers,
-    load_initial_stock_links,
+    load_initial_stock_links, validate_flow_pathways,
     init_stocks, run_flows_for_timestep, sample_flow_multipliers,
 )
 from strategicc.accounting.csv_loader import load_ecosystem_services, EcosystemService
@@ -439,7 +439,7 @@ class StrategiccEngine:
                 self.use_stockflow = False
             else:
                 self._stock_types      = load_stock_types(config.STOCK_TYPE_CSV)
-                load_flow_types(config.FLOW_TYPE_CSV)   # validated, not retained
+                flow_types              = load_flow_types(config.FLOW_TYPE_CSV)
                 self._flow_order       = load_flow_order(config.FLOW_ORDER_CSV)
                 self._flow_pathways    = load_flow_pathways(config.FLOW_PATHWAYS_CSV)
                 self._state_attr_rules = load_state_attribute_values(
@@ -453,6 +453,16 @@ class StrategiccEngine:
                     self._initial_stock_links = load_initial_stock_links(
                         config.INITIAL_STOCK_NON_SPATIAL_CSV
                     )
+                # v3.18: cross-validate Flow Pathways.csv's references
+                # against everything else just loaded — catches dangling
+                # StateAttributeTypeId/StockTypeId/FlowTypeId/StateClassId
+                # references (which otherwise silently produce zero flow
+                # for that pathway, with no error at all) before the run
+                # even starts.
+                validate_flow_pathways(
+                    self._flow_pathways, self._stock_types, flow_types,
+                    self._state_attr_rules, self.classes,
+                )
                 print(f"  Stock & Flow active: {len(self._stock_types)} "
                       f"stock type(s), {len(self._flow_pathways)} pathway(s)")
         else:
@@ -616,7 +626,7 @@ class StrategiccEngine:
             key = (rule.from_class, rule.to_class, rule.group)
             trans_age_info[key] = (rule.age_reset, rule.age_relative)
 
-        # ── Stock & Flow initialisation (v3.2) ──────────────────────────────
+        # ── Stock & Flow initialisation (v3.2, class-aware since v3.18) ──────
         if self.use_stockflow:
             current_stocks = init_stocks(
                 stock_types       = self._stock_types,
@@ -624,6 +634,8 @@ class StrategiccEngine:
                 initial_links     = self._initial_stock_links,
                 state_attr_rules  = self._state_attr_rules,
                 age_map           = current_age,
+                class_map         = lulc,
+                classes           = self.classes,
             )
             stock_maps: list[dict[str, np.ndarray]] = [
                 {k: v.copy() for k, v in current_stocks.items()}

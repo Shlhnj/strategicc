@@ -1,7 +1,15 @@
 """
-strategicc/config.py  —  v3.0
+strategicc/config.py  —  v3.1
 ------------------------------
 Runtime configuration: file paths, toggles, and tuning constants.
+
+v3.1 changes (strategicc 3.18)
+--------------------------------
+SHARPENING_POWER/DEFAULT_SHARPENING_POWER default changed from
+{6,6,8,4,4,6}/4 to 1 (no sharpening) for every group. See the comment
+directly above SHARPENING_POWER below for why, and override back up
+per group if your spatial multiplier rasters are raw/un-sharpened
+suitability rather than pre-sharpened.
 
 Two ways to configure a run:
 
@@ -99,15 +107,26 @@ STRICT_EXPANSION_GROUPS: set[str] = {
 }
 
 # ── Spatial multiplier tuning ─────────────────────────────────────────────────
+# v3.18: default changed to 1 (no sharpening) for every group. Bakes in what
+# was previously a manual runtime override some users applied themselves
+# (monkeypatching this dict right after `import strategicc.config`, before
+# `load_manifest()`) to use raw spatial-multiplier raster values as-is when
+# the sharpening exponent is already baked into the input rasters upstream
+# (e.g. pre-sharpened suitability surfaces from a separate GIS pipeline).
+# Applying STRATEGICC's own power-sharpening on top of an already-sharpened
+# input double-applies the effect. If your multiplier rasters are raw,
+# un-sharpened suitability (0-1, no exponent applied), override these back up
+# per group as before — nothing about HOW the exponent is applied changed
+# (see strategicc/core/spatial.py), only the default value.
 SHARPENING_POWER: dict[str, int] = {
-    "Agriculture_expansion": 6,
-    "Aquaculture_expansion": 6,
-    "Inundation":            8,
-    "Mangrove_recruitment":  4,
-    "Sedimentation":         4,
-    "Urbanization":          6,
+    "Agriculture_expansion": 1,
+    "Aquaculture_expansion": 1,
+    "Inundation":            1,
+    "Mangrove_recruitment":  1,
+    "Sedimentation":         1,
+    "Urbanization":          1,
 }
-DEFAULT_SHARPENING_POWER = 4
+DEFAULT_SHARPENING_POWER = 1
 
 # ── Output options (non-spatial) ──────────────────────────────────────────────
 SUMMARY_OUTPUT_SC            = True
