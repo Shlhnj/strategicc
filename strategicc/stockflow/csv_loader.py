@@ -318,3 +318,83 @@ def load_initial_stock_links(path: str | Path) -> dict[str, str]:
                 links[stock] = attr
     print(f"  {len(links)} initial stock link(s) loaded: {links}")
     return links
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cross-validation (v3.18)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def validate_flow_pathways(
+    pathways:          list[FlowPathwayRule],
+    stock_types:       list[str],
+    flow_types:        list[str],
+    state_attr_rules:  list[StateAttributeValueRule],
+    classes:           dict,
+) -> list[str]:
+    """
+    Cross-check every reference a FlowPathwayRule makes (from_stock_type,
+    to_stock_type, flow_type, state_attribute, from_state_class) against
+    what's actually defined elsewhere. None of the individual loaders do
+    this — each just parses its own file — so a typo or naming mismatch
+    between Flow Pathways.csv and Stock Type.csv / Flow Type.csv / State
+    Attribute Type.csv / State Class.csv previously went completely
+    unnoticed: the mismatched pathway would just silently source/move
+    zero quantity forever, exactly as happened with a real project's
+    'NPP_AG'/'NPP_BG' state attributes that were never defined anywhere
+    (only a single undifferentiated 'NPP' existed) — every GPP pathway
+    referencing them produced zero flow, with no error, no warning, for
+    the pathway type that's the ONLY source of new carbon into the
+    system, i.e. it silently zeroed the entire stock-flow simulation.
+
+    Returns a list of human-readable warning strings (also printed);
+    does not raise — mismatches are usually still "runnable" (they just
+    produce zero for that pathway), so this stays non-blocking, matching
+    the warning style used elsewhere in the CSV loaders.
+    """
+    warnings: list[str] = []
+    stock_type_set = set(stock_types)
+    flow_type_set = set(flow_types)
+    attr_type_set = {r.attribute_type for r in state_attr_rules}
+    class_name_set = {sc.name for sc in classes.values()} | \
+                      {sc.full_name for sc in classes.values()}
+
+    for p in pathways:
+        label = f"[{p.from_state_class or 'ALL'} -> {p.to_stock_type} ({p.flow_type})]"
+        if p.from_stock_type not in stock_type_set:
+            warnings.append(
+                f"{label} FromStockTypeId '{p.from_stock_type}' not in "
+                f"Stock Type.csv — this pathway will be skipped entirely."
+            )
+        if p.to_stock_type not in stock_type_set:
+            warnings.append(
+                f"{label} ToStockTypeId '{p.to_stock_type}' not in "
+                f"Stock Type.csv — this pathway will be skipped entirely."
+            )
+        if p.flow_type not in flow_type_set:
+            warnings.append(
+                f"{label} FlowTypeId '{p.flow_type}' not in Flow Type.csv "
+                f"— it will still run (flow_type is just a label used for "
+                f"Flow Order/logging) but won't get its intended firing "
+                f"order and won't be grouped correctly in output."
+            )
+        if p.state_attribute is not None and p.state_attribute not in attr_type_set:
+            warnings.append(
+                f"{label} StateAttributeTypeId '{p.state_attribute}' has no "
+                f"matching rows in State Attribute Values.csv — this "
+                f"pathway's source quantity will be 0 for every cell, every "
+                f"timestep, silently. Did you mean one of: "
+                f"{sorted(attr_type_set)}?"
+            )
+        if p.from_state_class is not None and p.from_state_class not in class_name_set:
+            warnings.append(
+                f"{label} FromStateClassId '{p.from_state_class}' not in "
+                f"State Class.csv — this pathway will never be eligible "
+                f"for any cell."
+            )
+
+    for w in warnings:
+        print(f"  [Warning] {w}")
+    if not warnings:
+        print(f"  Flow pathway cross-validation: all {len(pathways)} "
+              f"pathway(s) reference defined stock/flow/attribute/class names.")
+    return warnings
