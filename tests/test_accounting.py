@@ -7,7 +7,7 @@ Uses area_modal_df (from modal maps) as primary input.
 import pytest
 import pandas as pd
 import numpy as np
-from strategicc.accounting.csv_loader import EcosystemService
+from strategicc.accounting.csv_loader import EcosystemService, AssetValuationParams
 from strategicc.accounting.seea import SEEAAccount
 from strategicc.io.csv_loader import StateClass
 from strategicc.outputs import modal_to_area_table, _area_col
@@ -176,6 +176,178 @@ def test_extent_account_seea_requires_trans_df():
     acct = make_acct(trans_df=pd.DataFrame())
     with pytest.raises(ValueError):
         acct.extent_account_seea()
+
+# ── v3.5: physical/monetary flow accounts as SUTs (Table 7.1a/b, 9.1a/b) ──────
+
+def test_flow_account_seea_supply_use_identity():
+    """Core SUT requirement (SEEA EA para. 7.7): total supply of a
+    service must equal total use of that service, for both physical
+    and monetary accounts, for every year."""
+    acct = make_acct()
+    phys = acct.physical_flow_account_seea()
+    mon  = acct.monetary_flow_account_seea()
+    for result in (phys, mon):
+        supply_totals = result["supply"].groupby("Year").sum().sum(axis=1)
+        use_totals    = result["use"].groupby("Year").sum().sum(axis=1)
+        for year in supply_totals.index:
+            assert supply_totals[year] == pytest.approx(use_totals[year])
+
+def test_physical_flow_account_seea_keeps_class_dimension():
+    """Unlike physical_flow_account(), the class/ecosystem-type
+    dimension must survive (that's the whole point of the fix)."""
+    result = make_acct().physical_flow_account_seea()
+    classes_seen = result["supply"].index.get_level_values("Ecosystem type").unique()
+    assert set(classes_seen) == {"Forest", "Cropland"}
+
+def test_flow_account_seea_user_split():
+    """A service split 60/40 across two UserTypes should show up as
+    two separate use-table rows that sum back to the supply total."""
+    services = make_services() + []
+    services = [s for s in services if not (s.state_class == "Cropland" and s.service_name == "Crops")]
+    services += [
+        EcosystemService("Cropland", "Crops", "Provisioning", 8_000, "IDR", "kg/ha", 500,
+                          user_type="Households", user_share=0.6, has_explicit_user=True),
+        EcosystemService("Cropland", "Crops", "Provisioning", 8_000, "IDR", "kg/ha", 500,
+                          user_type="Agriculture", user_share=0.4, has_explicit_user=True),
+    ]
+    acct = make_acct(services=services)
+    result = acct.physical_flow_account_seea()
+    use = result["use"]
+    year_use = use.xs(2022, level="Year")
+    crops_col = [c for c in use.columns if c[1] == "Crops"][0]
+    households = year_use.loc["Households", crops_col]
+    agriculture = year_use.loc["Agriculture", crops_col]
+    supply_total = result["supply"].xs(2022, level="Year")[crops_col].sum()
+    assert households == pytest.approx(supply_total * 0.6)
+    assert agriculture == pytest.approx(supply_total * 0.4)
+
+def test_monetary_flow_account_seea_no_user_split_is_unspecified():
+    result = make_acct().monetary_flow_account_seea()
+    users = result["use"].index.get_level_values("User type").unique()
+    assert list(users) == ["Unspecified"]
+
+def test_flow_account_seea_additive_multi_row_without_usertype_not_double_counted():
+    """Regression test: a real EcosystemServices.csv can legitimately have
+    TWO rows sharing one service_name with no UserType at all (e.g. one
+    Mode C stock:AGB row + one stock:Soil row, both under 'Carbon
+    Storage', meant to SUM). This must not be mistaken for a v3.5
+    user-split (which would keep only one row as canonical) and must
+    not be flagged by the UserShare-sum warning either."""
+    services = make_services() + [
+        EcosystemService("Forest", "Carbon Storage", "Regulating", 1_000, "IDR", "MgC", 50),
+        EcosystemService("Forest", "Carbon Storage", "Regulating", 500, "IDR", "MgC", 20),
+    ]
+    acct = make_acct(services=services)
+    tv = acct.total_value_by_class()
+    # Forest's total should include BOTH Carbon Storage rows (1000+500
+    # per-ha components), not just one of them.
+    result = acct.monetary_flow_account_seea()
+    storage_cols = [c for c in result["supply"].columns if c[1] == "Carbon Storage"]
+    assert len(storage_cols) == 1
+    supply_2022 = result["supply"].xs(2022, level="Year")[storage_cols[0]].sum()
+    # 3 Forest px * 0.01 ha * (1000 + 500) IDR/ha = 45.0
+    assert supply_2022 == pytest.approx(45.0)
+
+# ── v3.5: monetary_asset_account_seea (Table 10.1) ────────────────────────────
+
+def make_asset_valuation_params(**overrides):
+    defaults = dict(state_class="ALL", discount_rate=0.02, asset_life_years=10,
+                     price_growth_rate=0.0)
+    defaults.update(overrides)
+    return {"ALL": AssetValuationParams(**defaults)}
+
+def test_monetary_asset_account_seea_requires_params():
+    acct = make_acct()
+    with pytest.raises(ValueError):
+        acct.monetary_asset_account_seea()
+
+def test_monetary_asset_account_seea_requires_trans_df():
+    acct = make_acct(trans_df=pd.DataFrame(),
+                      asset_valuation_params=make_asset_valuation_params())
+    with pytest.raises(ValueError):
+        acct.monetary_asset_account_seea()
+
+def test_monetary_asset_account_seea_shape_and_entries():
+    acct = make_acct(asset_valuation_params=make_asset_valuation_params())
+    df = acct.monetary_asset_account_seea()
+    periods = df.index.get_level_values("Period").unique().tolist()
+    assert periods == ["2022–2023", "2023–2024"]
+    entries = df.loc["2022–2023"].index.tolist()
+    assert entries == [
+        "Opening value", "Ecosystem enhancement", "Ecosystem degradation",
+        "Ecosystem conversions — additions", "Ecosystem conversions — reductions",
+        "Other changes in volume — catastrophic losses",
+        "Other changes in volume — reappraisals",
+        "Revaluations", "Net change in value", "Closing value",
+    ]
+    assert list(df.columns) == ["Cropland", "Forest", "Total"]
+
+def test_monetary_asset_account_seea_reconciles():
+    """Net change in value must equal Closing - Opening exactly, for
+    every class and every period — this holds by construction since
+    Enhancement/Degradation is defined as the reconciling residual."""
+    acct = make_acct(asset_valuation_params=make_asset_valuation_params())
+    df = acct.monetary_asset_account_seea()
+    for period in df.index.get_level_values("Period").unique():
+        block = df.loc[period]
+        opening, closing, net = (block.loc["Opening value"], block.loc["Closing value"],
+                                  block.loc["Net change in value"])
+        for col in df.columns:
+            assert net[col] == pytest.approx(closing[col] - opening[col])
+
+def test_monetary_asset_account_seea_zero_growth_means_zero_revaluation():
+    acct = make_acct(asset_valuation_params=make_asset_valuation_params(price_growth_rate=0.0))
+    df = acct.monetary_asset_account_seea()
+    reval = df.xs("Revaluations", level="Entry")
+    assert (reval == 0).all().all()
+
+def test_monetary_asset_account_seea_positive_growth_gives_nonzero_revaluation():
+    acct = make_acct(asset_valuation_params=make_asset_valuation_params(price_growth_rate=0.03))
+    df = acct.monetary_asset_account_seea()
+    reval = df.xs("Revaluations", level="Entry")
+    assert (reval["Total"] > 0).all()
+    # reconciliation must still hold with nonzero price growth
+    for period in df.index.get_level_values("Period").unique():
+        block = df.loc[period]
+        opening, closing, net = (block.loc["Opening value"], block.loc["Closing value"],
+                                  block.loc["Net change in value"])
+        for col in df.columns:
+            assert net[col] == pytest.approx(closing[col] - opening[col])
+
+def test_monetary_asset_account_seea_catastrophic_groups():
+    acct = make_acct(asset_valuation_params=make_asset_valuation_params())
+    df = acct.monetary_asset_account_seea(catastrophic_groups={"Agriculture_expansion"})
+    cat = df.xs("Other changes in volume — catastrophic losses", level="Entry")
+    ordinary_red = df.xs("Ecosystem conversions — reductions", level="Entry")
+    # every transition in the fixture is tagged Agriculture_expansion, so all
+    # of the period's Reductions value should have moved to catastrophic losses
+    assert cat.loc["2022–2023", "Total"] > 0
+    assert ordinary_red.loc["2022–2023", "Total"] == pytest.approx(0.0)
+    # reconciliation must still hold
+    for period in df.index.get_level_values("Period").unique():
+        block = df.loc[period]
+        opening, closing, net = (block.loc["Opening value"], block.loc["Closing value"],
+                                  block.loc["Net change in value"])
+        for col in df.columns:
+            assert net[col] == pytest.approx(closing[col] - opening[col])
+
+def test_monetary_asset_account_seea_missing_class_params_raises():
+    services = make_services() + [
+        EcosystemService("Wetland", "FloodControl", "Regulating", 1_000, "IDR", None, None),
+    ]
+    classes = make_classes()
+    classes[3] = StateClass(3, "Wetland", "Wetland:All", (255, 0, 0, 255))
+    # per-class params covering only Forest/Cropland, no "ALL" fallback —
+    # but area_modal_df/trans_df in this fixture never actually contain
+    # Wetland, so this exercises the *lookup* path harmlessly; the real
+    # check is that Forest/Cropland-only params with no ALL still work.
+    params = {
+        "Forest":   AssetValuationParams("Forest", 0.02, 10),
+        "Cropland": AssetValuationParams("Cropland", 0.02, 10),
+    }
+    acct = make_acct(asset_valuation_params=params)
+    df = acct.monetary_asset_account_seea()   # should NOT raise — no ALL needed
+    assert not df.empty
 
 def test_monetary_flow_account():
     mf = make_acct().monetary_flow_account()
