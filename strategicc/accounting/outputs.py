@@ -1,11 +1,18 @@
 """
-strategicc/accounting/outputs.py  —  SEEA-EA output functions  v3.12
+strategicc/accounting/outputs.py  —  SEEA-EA output functions  v3.13
 --------------------------------------------------------------------
-Saves all ecosystem accounts as CSVs and generates plots.
+Saves all ecosystem accounts as CSVs (and, since v3.19, Excel
+workbooks with one sheet per year/period) and generates plots.
 
 Functions
 ---------
 save_all_accounts   — save all account tables to CSV
+save_all_accounts_xlsx — (v3.19) save all account tables as .xlsx,
+                          one sheet per year/period for tables that have
+                          more than one row per year/period; a single
+                          sheet for tables that are already one row per
+                          year (splitting those further wouldn't help
+                          readability — see _write_grouped_excel())
 plot_monetary_flows — stacked area chart of total ecosystem value over time
 plot_value_by_service — line chart per service type over time
 plot_transition_heatmap — heatmap of transition matrix (area and value)
@@ -14,6 +21,7 @@ save_monetary_value_raster — (v3.12) Mode C genuine per-pixel valuation
 """
 
 from __future__ import annotations
+import re
 from pathlib import Path
 
 import numpy as np
@@ -108,6 +116,154 @@ def save_all_accounts(
     else:
         print(f"  [Skipped] seea_uncertainty_summary.csv — no per-iteration "
               f"area_df was provided to SEEAAccount (pass area_df= to enable)")
+
+
+# ── Save all account tables as Excel workbooks, one sheet per year ────────────
+
+_INVALID_SHEET_CHARS = re.compile(r"[\\/?*\[\]:]")
+
+def _sanitize_sheet_name(name: object) -> str:
+    """Excel sheet names: no \\/?*[]:  , max 31 chars, non-empty."""
+    s = _INVALID_SHEET_CHARS.sub("_", str(name))
+    return (s[:31] or "Sheet1")
+
+
+def _write_grouped_excel(
+    df:          pd.DataFrame,
+    out_path:    Path,
+    group_level: str,
+    fallback_sheet_name: str = "All Years",
+) -> None:
+    """
+    Write df to an .xlsx workbook. If df has an index level named
+    group_level (e.g. "Year" or "Period") with more than one row per
+    distinct value, splits into one sheet per value (the group level
+    dropped from each sheet — it's redundant with the sheet name).
+    Otherwise — no such level, or every value already has exactly one
+    row (a flat year-indexed table like extent_account()) — writes the
+    whole table to a single sheet instead; splitting an
+    already-one-row-per-year table into one-row-per-sheet wouldn't
+    help readability, it'd just be 30 sheets with one line each.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        names = list(df.index.names) if df.index.names else []
+        if group_level in names:
+            level_vals = df.index.get_level_values(group_level)
+            groups = level_vals.unique()
+            multi_row = any((level_vals == g).sum() > 1 for g in groups)
+            if multi_row:
+                for g in groups:
+                    sub = df.xs(g, level=group_level)
+                    sub.to_excel(writer, sheet_name=_sanitize_sheet_name(g))
+                return
+        df.to_excel(writer, sheet_name=fallback_sheet_name)
+
+
+def save_all_accounts_xlsx(
+    acct:    SEEAAccount,
+    out_dir: Path,
+) -> None:
+    """
+    Save all SEEA-EA account tables as Excel workbooks (.xlsx), one
+    workbook per account (matching save_all_accounts()'s CSV filenames,
+    .xlsx instead of .csv), with one sheet per year for tables where a
+    year has multiple rows (the flow-account supply/use pairs, Table
+    4.1's Period blocks, Table 10.1's Period blocks) and a single sheet
+    for tables that are already one row per year (extent_account(),
+    monetary/physical_flow_account(), total_value_by_class(),
+    change_in_value()) — see _write_grouped_excel() for why those
+    aren't split further. Requires openpyxl (pip install openpyxl, or
+    strategicc[xlsx]).
+
+    Does not replace save_all_accounts()'s CSVs — call both if you want
+    CSVs for scripting and workbooks for manual browsing; this function
+    only adds the .xlsx files alongside whatever's already in out_dir.
+    """
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        raise ImportError(
+            "save_all_accounts_xlsx() requires openpyxl — "
+            "install with `pip install openpyxl` or `pip install strategicc[xlsx]`."
+        )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_grouped_excel(
+        acct.extent_account(), out_dir / "seea_extent_account.xlsx", "Year"
+    )
+    print(f"  Saved: seea_extent_account.xlsx")
+
+    if acct.trans_df is not None and not acct.trans_df.empty:
+        _write_grouped_excel(
+            acct.extent_account_seea(), out_dir / "seea_extent_account_table4_1.xlsx", "Period"
+        )
+        print(f"  Saved: seea_extent_account_table4_1.xlsx")
+
+    with pd.ExcelWriter(out_dir / "seea_transition_matrix_area.xlsx", engine="openpyxl") as w:
+        acct.transition_matrix().to_excel(w, sheet_name="Transition Matrix")
+    print(f"  Saved: seea_transition_matrix_area.xlsx")
+
+    with pd.ExcelWriter(out_dir / "seea_transition_matrix_value.xlsx", engine="openpyxl") as w:
+        acct.value_change_matrix().to_excel(w, sheet_name="Value Change Matrix")
+    print(f"  Saved: seea_transition_matrix_value.xlsx")
+
+    _write_grouped_excel(
+        acct.monetary_flow_account(), out_dir / "seea_monetary_flow_account.xlsx", "Year"
+    )
+    print(f"  Saved: seea_monetary_flow_account.xlsx")
+
+    mon_seea = acct.monetary_flow_account_seea()
+    _write_grouped_excel(
+        mon_seea["supply"], out_dir / "seea_monetary_flow_account_supply.xlsx", "Year"
+    )
+    _write_grouped_excel(
+        mon_seea["use"], out_dir / "seea_monetary_flow_account_use.xlsx", "Year"
+    )
+    print(f"  Saved: seea_monetary_flow_account_supply.xlsx")
+    print(f"  Saved: seea_monetary_flow_account_use.xlsx")
+
+    phys = acct.physical_flow_account()
+    if phys is not None:
+        _write_grouped_excel(
+            phys, out_dir / "seea_physical_flow_account.xlsx", "Year"
+        )
+        print(f"  Saved: seea_physical_flow_account.xlsx")
+
+    phys_seea = acct.physical_flow_account_seea()
+    if phys_seea is not None:
+        _write_grouped_excel(
+            phys_seea["supply"], out_dir / "seea_physical_flow_account_supply.xlsx", "Year"
+        )
+        _write_grouped_excel(
+            phys_seea["use"], out_dir / "seea_physical_flow_account_use.xlsx", "Year"
+        )
+        print(f"  Saved: seea_physical_flow_account_supply.xlsx")
+        print(f"  Saved: seea_physical_flow_account_use.xlsx")
+
+    _write_grouped_excel(
+        acct.total_value_by_class(), out_dir / "seea_total_value_by_class.xlsx", "Year"
+    )
+    print(f"  Saved: seea_total_value_by_class.xlsx")
+
+    _write_grouped_excel(
+        acct.change_in_value(), out_dir / "seea_change_in_value.xlsx", "Year"
+    )
+    print(f"  Saved: seea_change_in_value.xlsx")
+
+    if acct.trans_df is not None and not acct.trans_df.empty and acct.asset_valuation_params:
+        _write_grouped_excel(
+            acct.monetary_asset_account_seea(),
+            out_dir / "seea_monetary_asset_account_table10_1.xlsx", "Period",
+        )
+        print(f"  Saved: seea_monetary_asset_account_table10_1.xlsx")
+
+    unc_df = acct.uncertainty_summary()
+    if unc_df is not None:
+        with pd.ExcelWriter(out_dir / "seea_uncertainty_summary.xlsx", engine="openpyxl") as w:
+            unc_df.to_excel(w, sheet_name="Uncertainty Summary", index=False)
+        print(f"  Saved: seea_uncertainty_summary.xlsx")
 
 
 # ── Plot: stacked area — total ecosystem value over time ──────────────────────
