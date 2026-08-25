@@ -68,16 +68,38 @@ def save_all_accounts(
     acct.monetary_flow_account().to_csv(out_dir / "seea_monetary_flow_account.csv")
     print(f"  Saved: seea_monetary_flow_account.csv")
 
+    mon_seea = acct.monetary_flow_account_seea()
+    mon_seea["supply"].to_csv(out_dir / "seea_monetary_flow_account_supply.csv")
+    mon_seea["use"].to_csv(out_dir / "seea_monetary_flow_account_use.csv")
+    print(f"  Saved: seea_monetary_flow_account_supply.csv")
+    print(f"  Saved: seea_monetary_flow_account_use.csv")
+
     phys = acct.physical_flow_account()
     if phys is not None:
         phys.to_csv(out_dir / "seea_physical_flow_account.csv")
         print(f"  Saved: seea_physical_flow_account.csv")
+
+    phys_seea = acct.physical_flow_account_seea()
+    if phys_seea is not None:
+        phys_seea["supply"].to_csv(out_dir / "seea_physical_flow_account_supply.csv")
+        phys_seea["use"].to_csv(out_dir / "seea_physical_flow_account_use.csv")
+        print(f"  Saved: seea_physical_flow_account_supply.csv")
+        print(f"  Saved: seea_physical_flow_account_use.csv")
 
     acct.total_value_by_class().to_csv(out_dir / "seea_total_value_by_class.csv")
     print(f"  Saved: seea_total_value_by_class.csv")
 
     acct.change_in_value().to_csv(out_dir / "seea_change_in_value.csv")
     print(f"  Saved: seea_change_in_value.csv")
+
+    if acct.trans_df is not None and not acct.trans_df.empty and acct.asset_valuation_params:
+        acct.monetary_asset_account_seea().to_csv(out_dir / "seea_monetary_asset_account_table10_1.csv")
+        print(f"  Saved: seea_monetary_asset_account_table10_1.csv")
+    else:
+        print(f"  [Skipped] seea_monetary_asset_account_table10_1.csv — requires "
+              f"both trans_df and asset_valuation_params (pass "
+              f"asset_valuation_params=load_asset_valuation_params(...) to enable "
+              f"the SEEA EA Table 10.1 formatted monetary asset account)")
 
     unc_df = acct.uncertainty_summary()
     if unc_df is not None:

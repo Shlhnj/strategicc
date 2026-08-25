@@ -1,10 +1,52 @@
 """
-strategicc/accounting/seea.py  —  SEEA-EA accounting engine  v3.4
+strategicc/accounting/seea.py  —  SEEA-EA accounting engine  v3.5
 ------------------------------------------------------------------
 Produces all ecosystem accounts from simulation outputs.
 
-v3.4 changes (strategicc 3.17)
+v3.5 changes (strategicc 3.17)
 -------------------------------
+* New physical_flow_account_seea() / monetary_flow_account_seea()
+  produce actual supply/use table pairs matching SEEA EA Tables
+  7.1a/7.1b (physical) and 9.1a/9.1b (monetary): a supply table (year x
+  class x service) and a use table (year x user_type x service),
+  rather than the single collapsed-across-class total that
+  physical_flow_account()/monetary_flow_account() report (those two
+  are unchanged and remain the simpler summary form). The use table is
+  built from EcosystemServices.csv's new optional UserType/UserShare
+  columns (csv_loader.py v3.5); services without a UserType are folded
+  into a single "Unspecified" user at share 1.0, so this works
+  unchanged on existing EcosystemServices.csv files, just with one
+  undifferentiated user column. For every (year, service), supply
+  total and use total are constructed to be identical by design (the
+  SUT identity SEEA EA para. 7.7 requires) — see
+  test_flow_account_seea_supply_use_identity in tests/test_accounting.py.
+* New monetary_asset_account_seea() produces the SEEA EA Table 10.1
+  layout: Opening value, Ecosystem enhancement, Ecosystem degradation,
+  Ecosystem conversions (Additions/Reductions), Other changes in
+  volume (Catastrophic losses), Revaluations, Net change in value,
+  Closing value — all reconciling exactly by construction (Net change
+  = Closing - Opening for every class and period). Requires a new
+  AssetValuationParams.csv (csv_loader.py v3.5, load_asset_valuation_
+  params()), passed to SEEAAccount as asset_valuation_params=. Opening/
+  Closing are NPV of that period's total service value per class (see
+  _npv() below); conversions are valued using extent_account_seea()'s
+  physical Additions/Reductions at the class's per-hectare value;
+  catastrophic_groups= (like extent_account_seea()'s managed_groups=)
+  optionally splits Reductions into ordinary vs. catastrophic losses;
+  Revaluations isolates the pure price-growth contribution to the
+  closing NPV via PriceGrowthRate; Reappraisals is not modelled and is
+  always reported as 0.0, since STRATEGICC has no mechanism to
+  generate a genuine methodology-change entry. Enhancement/Degradation
+  is the *residual* needed to make Net change reconcile exactly — this
+  is a documented approximation, not SEEA EA's condition-attributed
+  split (para. 10.12), since STRATEGICC has no compiled condition
+  account. If ConditionProxy is supplied in AssetValuationParams.csv,
+  its direction of change is compared to the residual's sign only as a
+  sanity check (a printed warning on disagreement), not used to
+  compute the split.
+
+v3.4 changes
+------------
 * extent_account() gained a Total column (sum across classes per year).
   Under an area-conserved run this stays constant year to year, which
   is the built-in check SEEA EA's own Total row/column is meant to
@@ -38,6 +80,7 @@ v3.2 changes
 ------------
 * Optional stock_df / flow_df parameters (from
   strategicc.stockflow.aggregation) enable Mode C valuation: services
+
   whose EcosystemServices.csv row sets StockFlowSource pull their
   physical quantity directly from the Stock & Flow engine's per-class
   totals instead of a static PhysicalValuePerUnitArea, with ValuePerUnitArea then
@@ -61,7 +104,7 @@ import numpy as np
 import pandas as pd
 
 from strategicc.io.csv_loader import StateClass
-from strategicc.accounting.csv_loader import EcosystemService
+from strategicc.accounting.csv_loader import EcosystemService, AssetValuationParams
 
 
 def _area_col(df: pd.DataFrame) -> str:
@@ -131,6 +174,11 @@ class SEEAAccount:
                     stockflow.aggregation.aggregate_flow_by_class().
                     Schema: year, class_name, flow_type, total.
                     Required for Mode C services with stockflow_kind="flow".
+
+    asset_valuation_params : (v3.5) dict[str, AssetValuationParams] from
+                    csv_loader.load_asset_valuation_params(), keyed by
+                    StateClassId ("ALL" is the fallback default).
+                    Required for monetary_asset_account_seea().
     """
 
     def __init__(
@@ -144,6 +192,7 @@ class SEEAAccount:
         area_df:       pd.DataFrame | None = None,
         stock_df:      pd.DataFrame | None = None,   # v3.2
         flow_df:       pd.DataFrame | None = None,   # v3.2
+        asset_valuation_params: dict[str, AssetValuationParams] | None = None,  # v3.5
     ) -> None:
         self.area_modal_df = area_modal_df
         self.trans_df      = trans_df
@@ -153,6 +202,7 @@ class SEEAAccount:
         self.area_df       = area_df
         self.stock_df      = stock_df
         self.flow_df       = flow_df
+        self.asset_valuation_params = asset_valuation_params or {}
 
         # Detect area column and unit label from modal df
         self._acol       = _area_col(area_modal_df)
@@ -177,10 +227,31 @@ class SEEAAccount:
         else:
             self._ha_per_unit = (px_area_ha / px_area) if px_area else 1.0
 
-        # Build service lookup: class_name → list of services
+        # Build service lookups: class_name → list of services.
+        # _svc_by_class keeps every row — needed to build the v3.5 use
+        # table, and correct for the pre-existing additive pattern of
+        # multiple rows sharing one service_name (e.g. Carbon Storage =
+        # stock:AGB + stock:Soil, each contributing its own amount).
+        # _svc_canonical_by_class collapses to ONE row per (class,
+        # service_name) ONLY for genuine v3.5 user-split groups — every
+        # row in the group has an explicit UserType, meaning they all
+        # repeat the SAME total (see csv_loader.py's reconciliation
+        # warning), so summing them all would double/n-count it.
+        # Groups without an explicit UserType on every row are additive
+        # (the original, pre-3.5 behaviour) and keep every row. This is
+        # what physical_flow_account(), monetary_flow_account() and
+        # total_value_by_class() use.
         self._svc_by_class: dict[str, list[EcosystemService]] = {}
+        _by_key: dict[tuple[str, str], list[EcosystemService]] = {}
         for svc in services:
             self._svc_by_class.setdefault(svc.state_class, []).append(svc)
+            _by_key.setdefault((svc.state_class, svc.service_name), []).append(svc)
+
+        self._svc_canonical_by_class: dict[str, list[EcosystemService]] = {}
+        for (cls, _name), group in _by_key.items():
+            is_split_group = len(group) > 1 and all(s.has_explicit_user for s in group)
+            reps = [group[0]] if is_split_group else group
+            self._svc_canonical_by_class.setdefault(cls, []).extend(reps)
 
         self._years = sorted(area_modal_df["year"].unique())
 
@@ -427,7 +498,7 @@ class SEEAAccount:
 
         total_val: dict[str, float] = {}
         for sc in self.classes.values():
-            svcs = self._svc_by_class.get(sc.name, [])
+            svcs = self._svc_canonical_by_class.get(sc.name, [])
             total_val[sc.name] = sum(s.value_per_unit_area for s in svcs)
 
         val_matrix = pd.DataFrame(0.0, index=tm.index, columns=tm.columns)
@@ -494,7 +565,7 @@ class SEEAAccount:
         records = []
         for _, row in self.area_modal_df.iterrows():
             svcs = [
-                s for s in self._svc_by_class.get(row["class_name"], [])
+                s for s in self._svc_canonical_by_class.get(row["class_name"], [])
                 if s.has_physical or s.has_stockflow_source
             ]
             for svc in svcs:
@@ -541,7 +612,7 @@ class SEEAAccount:
         """
         records = []
         for _, row in self.area_modal_df.iterrows():
-            for svc in self._svc_by_class.get(row["class_name"], []):
+            for svc in self._svc_canonical_by_class.get(row["class_name"], []):
                 value = self._service_monetary_value(
                     svc, row["class_name"], row["year"], row[self._acol]
                 )
@@ -564,11 +635,137 @@ class SEEAAccount:
         pivot.index.name = "Year"
         return pivot
 
+    def physical_flow_account_seea(self) -> dict[str, pd.DataFrame] | None:
+        """
+        Physical ecosystem services flow account as a supply/use table
+        pair, matching SEEA EA Tables 7.1a (supply) / 7.1b (use).
+
+        Returns {"supply": DataFrame, "use": DataFrame}, or None if no
+        service has a physical unit or stock/flow source (same
+        precondition as physical_flow_account()).
+
+        supply : rows (year, class), columns (service_type,
+                 service_name, unit) — the physical quantity each
+                 ecosystem type supplied that year, exactly matching
+                 physical_flow_account()'s totals once summed over
+                 class.
+        use    : rows (year, user_type), columns (service_type,
+                 service_name, unit) — the same total split across
+                 users via each service's UserType/UserShare
+                 (csv_loader.py v3.5). Services without an explicit
+                 UserType appear under a single "Unspecified" user at
+                 the full total, so for every (year, service) column,
+                 supply.sum() == use.sum() by construction (the SUT
+                 identity, SEEA EA para. 7.7).
+        """
+        has_any_physical = any(
+            s.has_physical or s.has_stockflow_source for s in self.services
+        )
+        if not has_any_physical:
+            return None
+
+        supply_records, use_records = [], []
+        for _, row in self.area_modal_df.iterrows():
+            class_name, year, area = row["class_name"], row["year"], row[self._acol]
+
+            for svc in self._svc_canonical_by_class.get(class_name, []):
+                if not (svc.has_physical or svc.has_stockflow_source):
+                    continue
+                qty = self._service_physical_qty(svc, class_name, year, area)
+                if qty is None:
+                    continue
+                unit = svc.physical_unit or (
+                    f"{svc.stockflow_type_name} ({svc.stockflow_kind})"
+                    if svc.has_stockflow_source else ""
+                )
+                supply_records.append({
+                    "year": year, "class": class_name,
+                    "service_type": svc.service_type, "service_name": svc.service_name,
+                    "unit": unit, "flow": qty,
+                })
+
+            for svc in self._svc_by_class.get(class_name, []):
+                if not (svc.has_physical or svc.has_stockflow_source):
+                    continue
+                qty = self._service_physical_qty(svc, class_name, year, area)
+                if qty is None:
+                    continue
+                unit = svc.physical_unit or (
+                    f"{svc.stockflow_type_name} ({svc.stockflow_kind})"
+                    if svc.has_stockflow_source else ""
+                )
+                use_records.append({
+                    "year": year, "user_type": svc.user_type,
+                    "service_type": svc.service_type, "service_name": svc.service_name,
+                    "unit": unit, "flow": qty * svc.user_share,
+                })
+
+        if not supply_records:
+            return None
+
+        supply = pd.DataFrame(supply_records).pivot_table(
+            index=["year", "class"],
+            columns=["service_type", "service_name", "unit"],
+            values="flow", aggfunc="sum",
+        ).fillna(0)
+        use = pd.DataFrame(use_records).pivot_table(
+            index=["year", "user_type"],
+            columns=["service_type", "service_name", "unit"],
+            values="flow", aggfunc="sum",
+        ).fillna(0)
+        supply.index.names = ["Year", "Ecosystem type"]
+        use.index.names    = ["Year", "User type"]
+        return {"supply": supply, "use": use}
+
+    def monetary_flow_account_seea(self) -> dict[str, pd.DataFrame]:
+        """
+        Monetary ecosystem services flow account as a supply/use table
+        pair, matching SEEA EA Tables 9.1a (supply) / 9.1b (use).
+
+        Returns {"supply": DataFrame, "use": DataFrame} — same shape
+        and construction as physical_flow_account_seea(), in monetary
+        terms. For every (year, service) column, supply.sum() ==
+        use.sum() by construction.
+        """
+        supply_records, use_records = [], []
+        for _, row in self.area_modal_df.iterrows():
+            class_name, year, area = row["class_name"], row["year"], row[self._acol]
+
+            for svc in self._svc_canonical_by_class.get(class_name, []):
+                value = self._service_monetary_value(svc, class_name, year, area)
+                supply_records.append({
+                    "year": year, "class": class_name,
+                    "service_type": svc.service_type, "service_name": svc.service_name,
+                    "value": value,
+                })
+
+            for svc in self._svc_by_class.get(class_name, []):
+                value = self._service_monetary_value(svc, class_name, year, area)
+                use_records.append({
+                    "year": year, "user_type": svc.user_type,
+                    "service_type": svc.service_type, "service_name": svc.service_name,
+                    "value": value * svc.user_share,
+                })
+
+        supply = pd.DataFrame(supply_records).pivot_table(
+            index=["year", "class"],
+            columns=["service_type", "service_name"],
+            values="value", aggfunc="sum",
+        ).fillna(0)
+        use = pd.DataFrame(use_records).pivot_table(
+            index=["year", "user_type"],
+            columns=["service_type", "service_name"],
+            values="value", aggfunc="sum",
+        ).fillna(0)
+        supply.index.names = ["Year", "Ecosystem type"]
+        use.index.names    = ["Year", "User type"]
+        return {"supply": supply, "use": use}
+
     def total_value_by_class(self) -> pd.DataFrame:
         """Total monetary value per class per year. Used for stacked area plots."""
         records = []
         for _, row in self.area_modal_df.iterrows():
-            svcs  = self._svc_by_class.get(row["class_name"], [])
+            svcs  = self._svc_canonical_by_class.get(row["class_name"], [])
             total = sum(
                 self._service_monetary_value(
                     s, row["class_name"], row["year"], row[self._acol]
@@ -596,6 +793,256 @@ class SEEAAccount:
         delta.index.name = "Year"
         return delta
 
+    # ── Internal: v3.5 monetary asset account helpers ──────────────────────
+
+    @staticmethod
+    def _npv(
+        annual_value: float, discount_rate: float,
+        asset_life_years: int, price_growth_rate: float = 0.0,
+    ) -> float:
+        """
+        NPV of a stream of `asset_life_years` annual cash flows starting
+        at `annual_value` and growing at `price_growth_rate` per year,
+        discounted at `discount_rate`, income earned at the end of each
+        year (SEEA EA's own assumption — see chap. 10 worked example).
+        Summed explicitly term by term (asset_life_years is at most a
+        few hundred) rather than a closed-form annuity formula, so
+        there's no edge case when price_growth_rate == discount_rate.
+        """
+        if asset_life_years <= 0:
+            return 0.0
+        r, g = discount_rate, price_growth_rate
+        return sum(
+            annual_value * ((1 + g) ** t) / ((1 + r) ** (t + 1))
+            for t in range(asset_life_years)
+        )
+
+    def _class_transition_area(
+        self, period_start_year: int, direction: str,
+        class_names: list[str], group_filter: set[str] | None = None,
+    ) -> pd.Series:
+        """
+        Median area transitioning in ('in', grouped by to_class) or out
+        ('out', grouped by from_class) of each class for the single
+        period starting at period_start_year, optionally restricted to
+        transitions whose `group` is in group_filter. Mirrors
+        extent_account_seea()'s internal flow logic; kept separate here
+        since this needs an independent group_filter dimension
+        (catastrophic vs. not) rather than extent_account_seea()'s
+        managed/unmanaged one.
+        """
+        empty = pd.Series(0.0, index=class_names)
+        if self.trans_df is None or self.trans_df.empty:
+            return empty
+        counts = (
+            self.trans_df
+            .groupby(["iteration", "year", "from_class", "to_class", "group"])
+            .size().reset_index(name="n_cells")
+        )
+        median_counts = (
+            counts.groupby(["year", "from_class", "to_class", "group"])["n_cells"]
+            .median().reset_index()
+        )
+        median_counts["area"] = median_counts["n_cells"] * self.px_area
+        sub = median_counts[median_counts["year"] == period_start_year]
+        if group_filter is not None:
+            sub = sub[sub["group"].isin(group_filter)]
+        col = "to_class" if direction == "in" else "from_class"
+        out = sub.groupby(col)["area"].sum()
+        return out.reindex(class_names).fillna(0.0)
+
+    def monetary_asset_account_seea(
+        self,
+        catastrophic_groups: set[str] | None = None,
+    ) -> pd.DataFrame:
+        """
+        Monetary ecosystem asset account in SEEA EA Table 10.1 layout
+        (v3.5, new in strategicc 3.17).
+
+        One block per accounting period: Opening value, Ecosystem
+        enhancement, Ecosystem degradation, Ecosystem conversions
+        (Additions/Reductions valued), Other changes in volume
+        (Catastrophic losses / Reappraisals), Revaluations, Net change
+        in value, Closing value. Columns are ecosystem classes plus
+        Total. Requires asset_valuation_params (from
+        csv_loader.load_asset_valuation_params()) to have been passed
+        to SEEAAccount, and requires trans_df.
+
+        Method (documented here since Table 10.1's entries require
+        choices SEEA EA leaves to the compiler):
+
+        * Opening/Closing value: NPV of that period's actual total
+          service value for the class (total_value_by_class()), using
+          DiscountRate/AssetLifeYears/PriceGrowthRate from
+          AssetValuationParams.csv, per SEEA EA's own worked assumption
+          of a constant future flow at the current rate (chap. 10,
+          appendix A10.1) with income earned at year end.
+        * Ecosystem conversions: Additions/Reductions come from
+          extent_account_seea()'s physical area entries (no
+          managed_groups split here — that's a separate, orthogonal
+          dimension). Additions are valued at the class's per-area
+          value in the period's closing year; Reductions at its
+          per-area value in the opening year, matching SEEA EA para.
+          10.12's requirement that these align with the physical extent
+          account.
+        * Other changes in volume — Catastrophic losses: if
+          catastrophic_groups is given, that portion of Reductions
+          whose transition `group` is in catastrophic_groups is
+          reported here instead of under ordinary Reductions (reusing
+          extent_account_seea()'s managed_groups= pattern — SEEA EA
+          leaves this classification to the compiler too). Reappraisals
+          is always reported as 0.0 — STRATEGICC has no mechanism to
+          generate a genuine methodology-change entry, so this is
+          honestly absent rather than silently missing.
+        * Revaluations: isolates the pure price-growth contribution to
+          the closing valuation — NPV at PriceGrowthRate minus NPV of
+          the same annual value at 0 growth. Zero whenever
+          PriceGrowthRate is 0 (the honest default).
+        * Ecosystem enhancement / degradation: the RESIDUAL needed so
+          that Net change in value reconciles exactly with
+          Closing - Opening (Enhancement = max(residual, 0),
+          Degradation = min(residual, 0)). This is a documented
+          approximation, not SEEA EA's condition-attributed split (SEEA
+          EA para. 10.12 ties this to the compiled condition account,
+          which STRATEGICC does not have). If a class's
+          AssetValuationParams.csv row supplies ConditionProxy, its
+          direction of change is compared to the residual's sign purely
+          as a sanity check — a printed warning if they disagree, never
+          used to compute the split itself.
+
+        Raises ValueError if trans_df or asset_valuation_params is
+        missing, or if any class lacks both its own row and an "ALL"
+        fallback in asset_valuation_params.
+        """
+        if self.trans_df is None or self.trans_df.empty:
+            raise ValueError(
+                "monetary_asset_account_seea() requires trans_df — pass "
+                "trans_df= when constructing SEEAAccount."
+            )
+        if not self.asset_valuation_params:
+            raise ValueError(
+                "monetary_asset_account_seea() requires asset_valuation_params "
+                "— pass asset_valuation_params=load_asset_valuation_params(...) "
+                "when constructing SEEAAccount."
+            )
+
+        extent   = self.extent_account()
+        ext_seea = self.extent_account_seea()
+        tv       = self.total_value_by_class()
+        class_names = [c for c in extent.columns if c != "Total"]
+        years    = list(extent.index)
+
+        missing = [
+            c for c in class_names
+            if c not in self.asset_valuation_params and "ALL" not in self.asset_valuation_params
+        ]
+        if missing:
+            raise ValueError(
+                f"monetary_asset_account_seea(): no AssetValuationParams row "
+                f"for class(es) {missing} and no 'ALL' fallback row."
+            )
+
+        def _params(class_name: str) -> AssetValuationParams:
+            return self.asset_valuation_params.get(
+                class_name, self.asset_valuation_params.get("ALL")
+            )
+
+        rows: list[tuple[tuple[str, str], dict]] = []
+        for i in range(len(years) - 1):
+            y0, y1 = years[i], years[i + 1]
+            period = f"{y0}\u2013{y1}"
+
+            catastrophic_area = (
+                self._class_transition_area(y0, "out", class_names, catastrophic_groups)
+                if catastrophic_groups else pd.Series(0.0, index=class_names)
+            )
+
+            entries = {
+                "Opening value": {}, "Ecosystem enhancement": {},
+                "Ecosystem degradation": {}, "Ecosystem conversions — additions": {},
+                "Ecosystem conversions — reductions": {},
+                "Other changes in volume — catastrophic losses": {},
+                "Other changes in volume — reappraisals": {},
+                "Revaluations": {}, "Net change in value": {}, "Closing value": {},
+            }
+
+            for cls in class_names:
+                p = _params(cls)
+                r, L, g = p.discount_rate, p.asset_life_years, p.price_growth_rate
+
+                opening_value = self._npv(tv.loc[y0, cls], r, L, g)
+                closing_value = self._npv(tv.loc[y1, cls], r, L, g)
+
+                opening_area = extent.loc[y0, cls]
+                closing_area = extent.loc[y1, cls]
+                val_per_area_y0 = (tv.loc[y0, cls] / opening_area) if opening_area > 0 else 0.0
+                val_per_area_y1 = (tv.loc[y1, cls] / closing_area) if closing_area > 0 else 0.0
+
+                additions_area  = ext_seea.loc[(period, "Additions"), cls]
+                reductions_area = ext_seea.loc[(period, "Reductions"), cls]
+                cat_area        = min(catastrophic_area.get(cls, 0.0), reductions_area)
+                ordinary_red_area = reductions_area - cat_area
+
+                additions_value = additions_area * val_per_area_y1
+                reductions_value = ordinary_red_area * val_per_area_y0
+                catastrophic_value = cat_area * val_per_area_y0
+
+                revaluation = (
+                    self._npv(tv.loc[y1, cls], r, L, g)
+                    - self._npv(tv.loc[y1, cls], r, L, 0.0)
+                )
+                reappraisal = 0.0  # not modelled
+
+                net_change = closing_value - opening_value
+                explained = (
+                    additions_value - reductions_value - catastrophic_value
+                    + revaluation + reappraisal
+                )
+                residual = net_change - explained
+                enhancement = max(residual, 0.0)
+                degradation = min(residual, 0.0)
+
+                if p.condition_proxy is not None and self.stock_df is not None \
+                        and not self.stock_df.empty and residual != 0:
+                    cp0 = self.stock_df[
+                        (self.stock_df["class_name"] == cls) & (self.stock_df["year"] == y0)
+                        & (self.stock_df["stock_type"] == p.condition_proxy)
+                    ]["total"].sum()
+                    cp1 = self.stock_df[
+                        (self.stock_df["class_name"] == cls) & (self.stock_df["year"] == y1)
+                        & (self.stock_df["stock_type"] == p.condition_proxy)
+                    ]["total"].sum()
+                    cond_delta = cp1 - cp0
+                    if cond_delta != 0 and (cond_delta > 0) != (residual > 0):
+                        print(f"  [Warning] monetary_asset_account_seea(): '{cls}' "
+                              f"{period} — Enhancement/Degradation residual "
+                              f"({residual:+.2f}) disagrees in sign with its "
+                              f"ConditionProxy '{p.condition_proxy}' change "
+                              f"({cond_delta:+.2f}); residual split kept as-is "
+                              f"(see method docstring — this is a sanity check, "
+                              f"not an input to the split).")
+
+                entries["Opening value"][cls]                              = opening_value
+                entries["Ecosystem enhancement"][cls]                      = enhancement
+                entries["Ecosystem degradation"][cls]                      = degradation
+                entries["Ecosystem conversions — additions"][cls]          = additions_value
+                entries["Ecosystem conversions — reductions"][cls]         = reductions_value
+                entries["Other changes in volume — catastrophic losses"][cls] = catastrophic_value
+                entries["Other changes in volume — reappraisals"][cls]     = reappraisal
+                entries["Revaluations"][cls]                               = revaluation
+                entries["Net change in value"][cls]                        = net_change
+                entries["Closing value"][cls]                              = closing_value
+
+            for entry_name, per_class in entries.items():
+                row = dict(per_class)
+                row["Total"] = float(sum(per_class.values()))
+                rows.append(((period, entry_name), row))
+
+        index = pd.MultiIndex.from_tuples([r[0] for r in rows], names=["Period", "Entry"])
+        df = pd.DataFrame([r[1] for r in rows], index=index,
+                           columns=class_names + ["Total"])
+        return df
+
     def uncertainty_summary(self) -> pd.DataFrame | None:
         """
         Min/max range of total ecosystem value across iterations.
@@ -614,7 +1061,7 @@ class SEEAAccount:
         ):
             area    = grp[raw_acol].sum()
             area_ha = area * self._ha_per_unit
-            svcs = self._svc_by_class.get(class_name, [])
+            svcs = self._svc_canonical_by_class.get(class_name, [])
             val  = sum(s.value_per_unit_area for s in svcs) * area_ha
             records.append({"iteration": iteration, "year": year, "value": val})
 
