@@ -626,7 +626,8 @@ class StrategiccEngine:
             key = (rule.from_class, rule.to_class, rule.group)
             trans_age_info[key] = (rule.age_reset, rule.age_relative)
 
-        # ── Stock & Flow initialisation (v3.2, class-aware since v3.18) ──────
+        # ── Stock & Flow initialisation (v3.2, class-aware since v3.18, ─────
+        #    px_area_ha-converted since v3.19) ────────────────────────────
         if self.use_stockflow:
             current_stocks = init_stocks(
                 stock_types       = self._stock_types,
@@ -636,6 +637,7 @@ class StrategiccEngine:
                 age_map           = current_age,
                 class_map         = lulc,
                 classes           = self.classes,
+                px_area_ha        = self.px_area_ha,
             )
             stock_maps: list[dict[str, np.ndarray]] = [
                 {k: v.copy() for k, v in current_stocks.items()}
@@ -876,6 +878,7 @@ class StrategiccEngine:
                     year              = year,
                     flow_mult_sample  = flow_mult_sample,
                     lulc_map          = current,
+                    px_area_ha        = self.px_area_ha,
                 )
                 stock_maps.append(
                     {k: v.copy() for k, v in current_stocks.items()}
