@@ -1,7 +1,27 @@
 """
-strategicc/stockflow/engine.py  —  v3.2
+strategicc/stockflow/engine.py  —  v3.3
 -------------------------------------------
 Per-cell, per-timestep stock and flow computation.
+
+v3.3 changes (strategicc 3.18) — BUG FIX
+-------------------------------------------
+init_stocks()/build_age_attribute_cache() now accept an optional
+class_map (+ classes dict) and use it. Previously, initial stock
+seeding always called lookup_state_attribute() with state_class=None,
+which only matches WILDCARD rules (a State Attribute Values.csv row
+with a blank StateClassId). Any rule scoped to a specific class (e.g.
+"Mangrove:All" — the normal, correct way to write this table, since
+initial biomass/soil carbon legitimately differs by ecosystem type)
+could never match, so initial stocks came out all-zero regardless of
+what the CSV actually specified, for any project using class-scoped
+State Attribute rules (which is the expected/standard usage, not an
+edge case). Nothing after t=0 creates stock from nothing, so this
+silently zeroed every downstream stock-linked value for the entire
+run. Fixed by threading the initial LULC array through as class_map,
+resolving each cell's StateClass.full_name (matching the CSV's
+StateClassId column format) before the lookup. Backward compatible:
+omitting class_map/classes keeps the old (only-wildcards-match)
+behavior rather than erroring. See tests/test_stock_initialization.py.
 
 Design
 ------
@@ -54,27 +74,67 @@ def build_age_attribute_cache(
     age_map:          np.ndarray,
     state_attr_rules: list[StateAttributeValueRule],
     attribute_type:   str,
+    class_map:        np.ndarray | None = None,
+    classes:          dict | None = None,
 ) -> np.ndarray:
     """
     Vectorise the age-bracket lookup for a State Attribute across an
     entire age raster (per-cell Python lookups would be far too slow).
+
+    v3.18: added class_map/classes. Without them (the old call
+    signature), every lookup passes state_class=None — which
+    lookup_state_attribute() only matches against WILDCARD rules
+    (State Attribute Values.csv rows with a blank StateClassId). Any
+    rule scoped to a specific class (e.g. "Mangrove:All", the normal,
+    expected way to write this table, since e.g. biomass legitimately
+    differs by ecosystem type) could never match, silently returning
+    0.0 for every cell regardless of what the CSV actually specified —
+    this was the root cause of initial stocks coming out all-zero
+    whenever State Attribute Values.csv used class-scoped rows.
+
+    When class_map (per-cell class ID array, e.g. the initial LULC
+    raster) and classes (id -> StateClass, for full_name resolution —
+    State Attribute Values.csv's StateClassId column matches
+    StateClass.full_name, e.g. "Mangrove:All", not the short .name)
+    are supplied, the lookup is done per (age, class) pair instead of
+    per age alone, so class-scoped rules are actually used.
 
     Returns
     -------
     float32 array, shape matching age_map. Cells with no matching rule
     get value 0.0.
     """
-    unique_ages = np.unique(age_map)
-    age_to_value: dict[int, float] = {}
-    for age in unique_ages:
-        val = lookup_state_attribute(
-            state_attr_rules, attribute_type, int(age), state_class=None
-        )
-        age_to_value[int(age)] = val if val is not None else 0.0
-
     out = np.zeros(age_map.shape, dtype=np.float32)
-    for age, val in age_to_value.items():
-        out[age_map == age] = val
+
+    if class_map is None or classes is None:
+        # Backward-compatible path: no class info available, only
+        # wildcard (state_class=None) rules can ever match.
+        unique_ages = np.unique(age_map)
+        age_to_value: dict[int, float] = {}
+        for age in unique_ages:
+            val = lookup_state_attribute(
+                state_attr_rules, attribute_type, int(age), state_class=None
+            )
+            age_to_value[int(age)] = val if val is not None else 0.0
+        for age, val in age_to_value.items():
+            out[age_map == age] = val
+        return out
+
+    full_name_by_id = {cid: sc.full_name for cid, sc in classes.items()}
+    unique_class_ids = np.unique(class_map)
+    for class_id in unique_class_ids:
+        class_name = full_name_by_id.get(int(class_id))
+        if class_name is None:
+            continue
+        cls_mask = (class_map == class_id)
+        unique_ages = np.unique(age_map[cls_mask])
+        for age in unique_ages:
+            val = lookup_state_attribute(
+                state_attr_rules, attribute_type, int(age), state_class=class_name
+            )
+            if val is None:
+                continue
+            out[cls_mask & (age_map == age)] = val
     return out
 
 
@@ -84,20 +144,45 @@ def init_stocks(
     initial_links:    dict[str, str],
     state_attr_rules: list[StateAttributeValueRule],
     age_map:          np.ndarray | None,
+    class_map:        np.ndarray | None = None,
+    classes:          dict | None = None,
 ) -> dict[str, np.ndarray]:
     """
     Build the initial (t=0) stock arrays. For each stock type linked via
     Initial Stock - Non Spatial.csv, the starting quantity per cell is the
     linked State Attribute's value looked up at that cell's initial age
-    (age=0 if no age tracking). Unlinked stock types start at zero.
+    (age=0 if no age tracking), AND at that cell's initial state class if
+    class_map/classes are supplied (v3.18 — see build_age_attribute_cache()
+    docstring for why this matters: State Attribute Values.csv rows are
+    normally scoped to a specific class, e.g. "Mangrove:All", and without
+    class information those rows can never match, silently zeroing every
+    stock regardless of what the CSV specifies).
     """
     stocks: dict[str, np.ndarray] = {}
+    full_name_by_id = (
+        {cid: sc.full_name for cid, sc in classes.items()} if classes else {}
+    )
     for stock_type in stock_types:
         arr = np.zeros(shape, dtype=np.float32)
         attr = initial_links.get(stock_type)
         if attr is not None:
             if age_map is not None:
-                arr = build_age_attribute_cache(age_map, state_attr_rules, attr)
+                arr = build_age_attribute_cache(
+                    age_map, state_attr_rules, attr,
+                    class_map=class_map, classes=classes,
+                )
+            elif class_map is not None and classes is not None:
+                # No age tracking, but we do know each cell's class —
+                # look up at age=0 per class rather than one global value.
+                for class_id in np.unique(class_map):
+                    class_name = full_name_by_id.get(int(class_id))
+                    if class_name is None:
+                        continue
+                    val = lookup_state_attribute(
+                        state_attr_rules, attr, age=0, state_class=class_name
+                    )
+                    if val is not None:
+                        arr[class_map == class_id] = val
             else:
                 val = lookup_state_attribute(state_attr_rules, attr, age=0)
                 if val is not None:
@@ -193,10 +278,20 @@ def run_flows_for_timestep(
         to_stock   = stocks[rule.to_stock_type]
 
         # ── Source quantity ──────────────────────────────────────────────
+        # v3.18: pass class_map/classes through here too — this call site
+        # has the SAME bug build_age_attribute_cache()/init_stocks() had:
+        # without class info, only wildcard (blank StateClassId) State
+        # Attribute rules can ever match. lulc_map/classes are already
+        # available as parameters to this function, just weren't being
+        # forwarded. A state_attribute-sourced flow whose rule is
+        # class-scoped (unlike e.g. a pure age-scaled NPP rule, which
+        # happens to be a wildcard and was unaffected) would otherwise
+        # silently source zero regardless of its current LULC class.
         if rule.state_attribute is not None:
             if age_map is not None:
                 source_qty = build_age_attribute_cache(
-                    age_map, state_attr_rules, rule.state_attribute
+                    age_map, state_attr_rules, rule.state_attribute,
+                    class_map=lulc_map, classes=classes,
                 )
             else:
                 source_qty = np.zeros(shape, dtype=np.float32)
