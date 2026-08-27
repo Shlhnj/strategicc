@@ -121,10 +121,24 @@ def main() -> None:
             start_year  = engine.start_year,
             n_timesteps = engine.n_timesteps,
         )
-        asset_dir = engine.out_dir / "seea"
-        asset_dir.mkdir(parents=True, exist_ok=True)
-        asset_account.to_csv(asset_dir / "seea_asset_account.csv", index=False)
-        print(f"  seea_asset_account.csv saved ({len(asset_account)} rows)")
+        seea_dir = engine.out_dir / "seea"
+        csv_dir  = seea_dir / "csv"    # v3.20 — csv/xlsx now in separate folders
+        xlsx_dir = seea_dir / "xlsx"
+        seea_outputs.save_asset_account(asset_account, csv_dir,  write_csv=True,  write_xlsx=False)
+        seea_outputs.save_asset_account(asset_account, xlsx_dir, write_csv=False, write_xlsx=True)
+
+        print("\n[18c] Building SEEA EA Table 13.3 carbon stock account (v3.20)...")
+        from strategicc.stockflow.aggregation import stock_account_seea
+        carbon_stock_account = stock_account_seea(
+            stock_df    = stock_df,
+            flow_df     = flow_df,
+            stock_types = engine._stock_types,
+            classes     = engine.classes,
+            start_year  = engine.start_year,
+            n_timesteps = engine.n_timesteps,
+        )
+        seea_outputs.save_carbon_stock_account(carbon_stock_account, csv_dir,  write_csv=True,  write_xlsx=False)
+        seea_outputs.save_carbon_stock_account(carbon_stock_account, xlsx_dir, write_csv=False, write_xlsx=True)
 
         max_diff = asset_account["reconciliation_diff"].abs().max()
         if max_diff > 0:
@@ -142,6 +156,8 @@ def main() -> None:
     # ── 8. SEEA-EA accounting from modal area (+ stock/flow for Mode C) ──────
     if engine.use_seea and engine.ecosystem_services:
         seea_dir = engine.out_dir / "seea"
+        csv_dir  = seea_dir / "csv"    # v3.20 — csv/xlsx now in separate folders
+        xlsx_dir = seea_dir / "xlsx"
         print("\n[19] Running SEEA-EA ecosystem accounting (modal input)...")
 
         acct = SEEAAccount(
@@ -156,8 +172,11 @@ def main() -> None:
             flow_df       = flow_df,    # v3.2 — Mode C
         )
 
-        print("  Saving account tables...")
-        seea_outputs.save_all_accounts(acct, seea_dir)
+        print("  Saving account tables (csv)...")
+        seea_outputs.save_all_accounts(acct, csv_dir)
+
+        print("  Saving account tables (xlsx)...")
+        seea_outputs.save_all_accounts_xlsx(acct, xlsx_dir)
 
         print("  Generating SEEA plots...")
         seea_outputs.plot_monetary_flows(acct, engine.classes, seea_dir)

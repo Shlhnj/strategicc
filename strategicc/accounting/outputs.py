@@ -1,5 +1,5 @@
 """
-strategicc/accounting/outputs.py  —  SEEA-EA output functions  v3.13
+strategicc/accounting/outputs.py  —  SEEA-EA output functions  v3.14
 --------------------------------------------------------------------
 Saves all ecosystem accounts as CSVs (and, since v3.19, Excel
 workbooks with one sheet per year/period) and generates plots.
@@ -13,6 +13,15 @@ save_all_accounts_xlsx — (v3.19) save all account tables as .xlsx,
                           sheet for tables that are already one row per
                           year (splitting those further wouldn't help
                           readability — see _write_grouped_excel())
+save_asset_account   — (v3.20) CSV + sheet-per-year .xlsx for the flat
+                          asset account (stockflow.aggregation.
+                          build_asset_account()) — previously CSV-only
+                          and outside the save_all_accounts()/
+                          save_all_accounts_xlsx() pair.
+save_carbon_stock_account — (v3.20) CSV + sheet-per-period .xlsx, one
+                          file per stock type, for the Table 13.3-shaped
+                          physical stock account (stockflow.aggregation.
+                          stock_account_seea()).
 plot_monetary_flows — stacked area chart of total ecosystem value over time
 plot_value_by_service — line chart per service type over time
 plot_transition_heatmap — heatmap of transition matrix (area and value)
@@ -158,6 +167,119 @@ def _write_grouped_excel(
                     sub.to_excel(writer, sheet_name=_sanitize_sheet_name(g))
                 return
         df.to_excel(writer, sheet_name=fallback_sheet_name)
+
+
+def _write_flat_grouped_excel(
+    df:          pd.DataFrame,
+    out_path:    Path,
+    group_col:   str,
+    fallback_sheet_name: str = "All Years",
+) -> None:
+    """
+    Column-based counterpart to _write_grouped_excel() (v3.20), for flat
+    (non-MultiIndex) tables like build_asset_account()'s output, where
+    the split key (e.g. "year") is an ordinary column rather than an
+    index level. If group_col is present and has more than one row per
+    distinct value, splits into one sheet per value (the group column
+    dropped from each sheet, same reasoning as _write_grouped_excel()).
+    Otherwise writes the whole table to a single sheet.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        if group_col in df.columns:
+            groups = df[group_col].unique()
+            multi_row = any((df[group_col] == g).sum() > 1 for g in groups)
+            if multi_row:
+                for g in groups:
+                    sub = df[df[group_col] == g].drop(columns=[group_col])
+                    sub.to_excel(writer, sheet_name=_sanitize_sheet_name(g), index=False)
+                return
+        df.to_excel(writer, sheet_name=fallback_sheet_name, index=False)
+
+
+def save_asset_account(
+    asset_account: pd.DataFrame,
+    out_dir:       Path,
+    write_csv:     bool = True,
+    write_xlsx:    bool = True,
+) -> None:
+    """
+    Save the flat SEEA-EA-style asset account (v3.3, from
+    stockflow.aggregation.build_asset_account()) as CSV and, since
+    v3.20, .xlsx split by year — matching the sheet-per-year treatment
+    the other 14 accounts already get from save_all_accounts_xlsx(),
+    which this table was previously excluded from (it's built and
+    written directly by run.py, outside the save_all_accounts()/
+    save_all_accounts_xlsx() pair, since it comes from
+    stockflow.aggregation rather than SEEAAccount).
+
+    write_csv/write_xlsx let a caller target csv/ and xlsx/ output
+    folders separately (v3.20) by calling this twice, once per folder,
+    with the other format switched off — rather than writing both
+    formats into whichever single out_dir is passed.
+
+    Kept as its own function (not folded into save_all_accounts[_xlsx])
+    since callers who only have stock_df/flow_df output, not a full
+    SEEAAccount, still need a place to write it (that's exactly how
+    run.py calls it).
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if write_csv:
+        asset_account.to_csv(out_dir / "seea_asset_account.csv", index=False)
+        print(f"  Saved: seea_asset_account.csv")
+
+    if write_xlsx:
+        try:
+            import openpyxl  # noqa: F401
+        except ImportError:
+            print(f"  [Skipped] seea_asset_account.xlsx — requires openpyxl "
+                  f"(pip install openpyxl, or strategicc[xlsx])")
+        else:
+            _write_flat_grouped_excel(
+                asset_account, out_dir / "seea_asset_account.xlsx", "year"
+            )
+            print(f"  Saved: seea_asset_account.xlsx")
+
+
+def save_carbon_stock_account(
+    stock_account: dict[str, pd.DataFrame],
+    out_dir:       Path,
+    write_csv:     bool = True,
+    write_xlsx:    bool = True,
+) -> None:
+    """
+    Save the Table 13.3-shaped physical carbon stock account (v3.20,
+    from stockflow.aggregation.stock_account_seea()) as CSV and .xlsx,
+    one file per stock type (e.g. seea_carbon_stock_account_AGB.csv/
+    .xlsx) — matching how other dict-returning accounts (e.g.
+    monetary_flow_account_seea()'s supply/use pair) get one file per
+    key. Each .xlsx gets one sheet per accounting period, via
+    _write_grouped_excel() (stock_account_seea()'s tables are already
+    Period-indexed, unlike the flat asset account above).
+
+    write_csv/write_xlsx: see save_asset_account() — same
+    separate-folder calling convention.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for stock_type, df in stock_account.items():
+        if write_csv:
+            df.to_csv(out_dir / f"seea_carbon_stock_account_{stock_type}.csv")
+            print(f"  Saved: seea_carbon_stock_account_{stock_type}.csv")
+
+        if write_xlsx:
+            try:
+                import openpyxl  # noqa: F401
+            except ImportError:
+                print(f"  [Skipped] seea_carbon_stock_account_{stock_type}.xlsx "
+                      f"— requires openpyxl (pip install openpyxl, or "
+                      f"strategicc[xlsx])")
+            else:
+                _write_grouped_excel(
+                    df, out_dir / f"seea_carbon_stock_account_{stock_type}.xlsx",
+                    "Period",
+                )
+                print(f"  Saved: seea_carbon_stock_account_{stock_type}.xlsx")
 
 
 def save_all_accounts_xlsx(

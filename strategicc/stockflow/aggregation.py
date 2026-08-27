@@ -287,3 +287,144 @@ def build_asset_account(
                 opening_balance = closing_reconciled
 
     return pd.DataFrame(rows)
+
+
+def stock_account_seea(
+    stock_df:    pd.DataFrame,
+    flow_df:     pd.DataFrame,
+    stock_types: list[str],
+    classes:     dict,
+    start_year:  int,
+    n_timesteps: int,
+) -> dict[str, pd.DataFrame]:
+    """
+    Physical stock account in SEEA EA Table 13.3 layout (v3.20) — one
+    table per stock type (a stock account is compiled per substance/
+    reservoir, matching how Table 13.3 itself separates categories like
+    Geocarbon/Biocarbon rather than mixing them), each with one block
+    of rows per accounting period:
+
+        Opening stock
+        Additions to stock
+        Reductions in stock
+        Net carbon balance   (Additions - Reductions)
+        Closing stock
+
+    columns = classes + Total. This collapses Table 13.3's own
+    sub-breakdown of Additions (Unmanaged/Managed expansion,
+    Discoveries, Reclassifications, Imports) and Reductions (Unmanaged/
+    Managed contraction, Reclassifications, Exports, Catastrophic
+    losses) into single Additions/Reductions rows, since STRATEGICC's
+    flow log has no source for that finer classification — the row set
+    used here is the "basic form" the manual itself describes in
+    para. 13.63 ("opening stock, additions, reductions and closing
+    stock"), verified directly against table 13.3.
+
+    Unlike build_asset_account() (the flat, database-style ledger this
+    package already produced, kept as-is for its own diagnostic value —
+    it carries closing_balance_actual/reconciliation_diff, useful for
+    validation, that Table 13.3 itself has no equivalent for), this
+    function is a presentation layer matching the standard's own row/
+    column/period convention, the same one extent_account_seea() and
+    monetary_asset_account_seea() already use for their own tables.
+
+    Opening/Closing come directly from stock_df's actual per-year
+    totals (never drift, since they're not rolled forward from a prior
+    reconciled figure — each period's Opening/Closing is read fresh
+    from the real stock rasters). Additions/Reductions come from
+    flow_df, classified the same way build_asset_account() does
+    (to_stock==stock_type -> addition, from_stock==stock_type ->
+    reduction), looked up at the period's CLOSING year — matching
+    build_asset_account()'s own (tested) year convention, not
+    extent_account_seea()'s opening-year one; the two account builders
+    use flow_df's `year` column differently and this follows
+    build_asset_account()'s. Since v3.20's class-to-class stock
+    carryover fix (see run_flows_for_timestep()), Additions/Reductions
+    now include stock that moved between classes via land conversion,
+    not just modeled flow pathways, so Net balance should track
+    Closing - Opening closely for every class, not only ones with a
+    modeled flow pathway of their own.
+
+    Net balance is NOT forced to reconcile exactly against
+    Closing - Opening (no residual row absorbs the difference, unlike
+    monetary_asset_account_seea()'s Enhancement/Degradation) — any
+    remaining gap is genuine Monte Carlo noise from aggregating medians
+    across iterations (see build_asset_account()'s own docstring for
+    the same caveat) and is left visible rather than hidden.
+
+    Parameters
+    ----------
+    stock_df, flow_df, stock_types, classes, start_year, n_timesteps :
+        same as build_asset_account().
+
+    Returns
+    -------
+    dict[stock_type, DataFrame], each DataFrame with a MultiIndex
+    (Period, Entry) on the rows and columns [class_name, ..., Total].
+    Written to CSV/XLSX this reads as one block of rows per accounting
+    period, in Table 13.3's own row order.
+    """
+    class_names = [sc.name for sc in classes.values()]
+    years = [start_year + t for t in range(n_timesteps + 1)]
+    if len(years) < 2:
+        raise ValueError(
+            "stock_account_seea() needs at least two years of stock "
+            "data to form one accounting period."
+        )
+
+    result: dict[str, pd.DataFrame] = {}
+
+    for stock_type in stock_types:
+
+        def _stock_totals(year: int) -> pd.Series:
+            match = stock_df[
+                (stock_df["stock_type"] == stock_type)
+                & (stock_df["year"] == year)
+            ]
+            s = match.groupby("class_name")["total"].sum()
+            return s.reindex(class_names).fillna(0.0)
+
+        def _flow_totals(year: int, side: str) -> pd.Series:
+            # side: "to" (additions) or "from" (reductions), matching
+            # build_asset_account()'s own to_stock/from_stock == stock_type
+            # classification, looked up at the period's CLOSING year.
+            col = "to_stock" if side == "to" else "from_stock"
+            match = flow_df[
+                (flow_df[col] == stock_type) & (flow_df["year"] == year)
+            ]
+            s = match.groupby("class_name")["total"].sum()
+            return s.reindex(class_names).fillna(0.0)
+
+        rows: list[tuple[tuple[str, str], dict]] = []
+        for i in range(len(years) - 1):
+            y0, y1 = years[i], years[i + 1]
+            period = f"{y0}\u2013{y1}"
+
+            opening    = _stock_totals(y0)
+            closing    = _stock_totals(y1)
+            additions  = _flow_totals(y1, "to")
+            reductions = _flow_totals(y1, "from")
+            net_balance = additions - reductions
+
+            entries = [
+                ("Opening stock",       opening),
+                ("Additions to stock",  additions),
+                ("Reductions in stock", reductions),
+                ("Net carbon balance",  net_balance),
+                ("Closing stock",       closing),
+            ]
+
+            for entry_name, series in entries:
+                series = pd.Series(series, index=class_names).astype(float)
+                row = series.to_dict()
+                row["Total"] = float(series.sum())
+                rows.append(((period, entry_name), row))
+
+        index = pd.MultiIndex.from_tuples(
+            [r[0] for r in rows], names=["Period", "Entry"]
+        )
+        result[stock_type] = pd.DataFrame(
+            [r[1] for r in rows], index=index, columns=class_names + ["Total"]
+        )
+
+    return result

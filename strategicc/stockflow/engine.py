@@ -261,6 +261,79 @@ def run_flows_for_timestep(
     """
     shape = next(iter(stocks.values())).shape
 
+    flow_records: list[FlowRecord] = []
+
+    # ── Class-to-class stock carryover (v3.20) ──────────────────────────
+    # When a cell transitions from one class to another, whatever stock
+    # it already holds moves with it — that's not a "flow" through any
+    # pathway, it's just the same stock persisting under a new class
+    # label. Previously this was invisible to build_asset_account()'s
+    # reconciliation: the stock would vanish from the origin class's
+    # ledger and reappear in the destination's with neither side logged,
+    # so any class that gains stock primarily through land conversion
+    # rather than a modeled flow pathway (e.g. Aquaculture inheriting
+    # AGB from converted Mangrove, with no GPP pathway of its own to
+    # ever show a matching addition) would drift further from its true
+    # value every year, with reductions logged but no offsetting credit.
+    # Logged as two synthetic FlowRecords per stock type (not one, and
+    # not from_stock==to_stock==stock_type) so build_asset_account()'s
+    # additions/reductions classification (purely by to_stock/from_stock
+    # match, see its own docstring) can't double-count or cancel a
+    # single class's own transfer against itself — the dummy stock names
+    # below never match a real stock_type, so a reduction row is only
+    # ever picked up as a reduction, and an addition row only as an
+    # addition.
+    if year_transitions and lulc_map is not None:
+        id_to_name = {cid: sc.name for cid, sc in classes.items()}
+        t_from = np.fromiter((r.from_id for r in year_transitions), dtype=np.int64)
+        t_to   = np.fromiter((r.to_id   for r in year_transitions), dtype=np.int64)
+        changed = t_from != t_to
+        if changed.any():
+            t_rows = np.fromiter((r.row for r in year_transitions), dtype=np.int64)[changed]
+            t_cols = np.fromiter((r.col for r in year_transitions), dtype=np.int64)[changed]
+            t_from = t_from[changed]
+            t_to   = t_to[changed]
+
+            for stock_type, stock_arr in stocks.items():
+                amounts = stock_arr[t_rows, t_cols].astype(np.float64)
+                nz = amounts != 0.0
+                if not nz.any():
+                    continue
+
+                out_by_class: dict[str, float] = {}
+                in_by_class:  dict[str, float] = {}
+                for from_id, to_id, amt in zip(t_from[nz], t_to[nz], amounts[nz]):
+                    fn = id_to_name.get(int(from_id))
+                    tn = id_to_name.get(int(to_id))
+                    if fn is not None:
+                        out_by_class[fn] = out_by_class.get(fn, 0.0) + float(amt)
+                    if tn is not None:
+                        in_by_class[tn] = in_by_class.get(tn, 0.0) + float(amt)
+
+                total_out = sum(out_by_class.values())
+                if total_out != 0.0:
+                    flow_records.append(FlowRecord(
+                        year              = year,
+                        flow_type         = "ClassTransfer",
+                        from_stock        = stock_type,
+                        to_stock          = "__ClassTransferOut",
+                        transition_group  = None,
+                        total_amount      = total_out,
+                        by_class          = out_by_class,
+                    ))
+
+                total_in = sum(in_by_class.values())
+                if total_in != 0.0:
+                    flow_records.append(FlowRecord(
+                        year              = year,
+                        flow_type         = "ClassTransfer",
+                        from_stock        = "__ClassTransferIn",
+                        to_stock          = stock_type,
+                        transition_group  = None,
+                        total_amount      = total_in,
+                        by_class          = in_by_class,
+                    ))
+
     fired_by_group: dict[str, np.ndarray] = {}
     for rec in year_transitions:
         mask = fired_by_group.setdefault(
@@ -277,8 +350,6 @@ def run_flows_for_timestep(
         pathways,
         key=lambda r: flow_order.get(r.flow_type, default_flow_order)
     )
-
-    flow_records: list[FlowRecord] = []
 
     for rule in ordered_pathways:
         if rule.from_stock_type not in stocks or rule.to_stock_type not in stocks:
