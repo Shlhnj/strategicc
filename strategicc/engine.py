@@ -66,7 +66,9 @@ from strategicc.stockflow import (
     load_initial_stock_links, validate_flow_pathways,
     init_stocks, run_flows_for_timestep, sample_flow_multipliers,
 )
-from strategicc.accounting.csv_loader import load_ecosystem_services, EcosystemService
+from strategicc.accounting.csv_loader import (
+    load_ecosystem_services, EcosystemService, load_asset_valuation_params,
+)
 
 
 class StrategiccEngine:
@@ -118,6 +120,7 @@ class StrategiccEngine:
         transition_adjacency_mult_csv    = None,    # v3.1 Path | None
         use_stockflow:        bool = False,   # v3.2
         distributions_csv     = None,         # v3.6.1 Path | None
+        asset_valuation_params_csv = None,    # v3.21 Path | None
     ) -> None:
         self.lulc_path               = Path(lulc_path)
         self.state_classes_csv       = Path(state_classes_csv)
@@ -152,6 +155,9 @@ class StrategiccEngine:
         self.distributions_csv = (
             Path(distributions_csv) if distributions_csv else None
         )  # v3.6.1
+        self.asset_valuation_params_csv = (
+            Path(asset_valuation_params_csv) if asset_valuation_params_csv else None
+        )  # v3.21 — optional; enables monetary_asset_account_seea() in main()
 
         # Populated by load() — Stock & Flow (v3.2)
         self._stock_types:       list  = []
@@ -169,6 +175,7 @@ class StrategiccEngine:
         self.trans_mult_rules:    list  = []
         self.distributions:       dict  = {}   # v3.6.1 — {name: DistributionEntry}
         self.ecosystem_services:  list  = []
+        self.asset_valuation_params: dict = {}   # v3.21 — populated by load() if present
         self.src_tags:            dict  = {}
         self._crs_info = None   # v3.6 — set in load()
         self.px_area_ha:          float = 1.0
@@ -218,6 +225,7 @@ class StrategiccEngine:
             transition_adjacency_mult_csv    = config.TRANSITION_ADJACENCY_MULT_CSV,
             use_stockflow           = config.USE_STOCKFLOW,
             distributions_csv       = getattr(config, "DISTRIBUTIONS_CSV", None),
+            asset_valuation_params_csv = getattr(config, "ASSET_VALUATION_PARAMS_CSV", None),
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -335,6 +343,23 @@ class StrategiccEngine:
             self.use_seea = False
         else:
             print("  [Skipped — USE_SEEA=False]")
+
+        print("\n[6b] Loading asset valuation params (v3.21, optional)...")
+        # Unlike ecosystem_services above, missing this file never disables
+        # USE_SEEA or the rest of SEEA output — it only means
+        # monetary_asset_account_seea() (Table 10.1) is left out, since not
+        # every run needs monetary valuation on top of the physical/service
+        # accounts.
+        if self.use_seea and self.asset_valuation_params_csv and self.asset_valuation_params_csv.exists():
+            self.asset_valuation_params = load_asset_valuation_params(
+                self.asset_valuation_params_csv
+            )
+        elif self.use_seea and self.asset_valuation_params_csv:
+            print(f"  [Warning] {self.asset_valuation_params_csv} not found — "
+                  "monetary asset account (Table 10.1) will be omitted from "
+                  "SEEA output")
+        else:
+            print("  [Skipped — not set, or USE_SEEA=False]")
 
         print("\n[7] Setting up age tracking...")
         if self.use_age:

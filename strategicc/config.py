@@ -46,6 +46,14 @@ TRANSITION_TYPE_CSV      = Path("inputs/TransitionType.csv")
 
 ECOSYSTEM_SERVICES_CSV   = Path("inputs/EcosystemServices.csv")
 
+# Optional (v3.21) — enables monetary_asset_account_seea() (SEEA EA
+# Table 10.1) in the main() pipeline. If unset, or the file doesn't
+# exist, the monetary asset account is silently omitted from SEEA
+# output — same "optional, warn-if-missing-but-set" treatment as
+# ECOSYSTEM_SERVICES_CSV above, not a hard requirement, since not
+# every run needs monetary valuation.
+ASSET_VALUATION_PARAMS_CSV = Path("inputs/AssetValuationParams.csv")
+
 # ── Initial state class from historical LULC zip (v3.4) ──────────────────────
 # When enabled, the initial LULC raster (normally LULC_PATH / StateClassFileName)
 # is instead extracted from a historical LULC time-series zip — the same format
@@ -198,6 +206,7 @@ _MANIFEST_SCHEMA: dict[str, tuple[str, str]] = {
     "DISTRIBUTIONS_CSV":                  ("DISTRIBUTIONS_CSV", "path"),
     "TRANSITION_TYPE_CSV":                ("TRANSITION_TYPE_CSV", "path"),
     "ECOSYSTEM_SERVICES_CSV":             ("ECOSYSTEM_SERVICES_CSV", "path"),
+    "ASSET_VALUATION_PARAMS_CSV":         ("ASSET_VALUATION_PARAMS_CSV", "path"),
     "AGE_INITIAL_CSV":                    ("AGE_INITIAL_CSV", "path"),
     "TRANSITION_SIZE_CSV":                ("TRANSITION_SIZE_CSV", "path"),
     "TRANSITION_TARGETS_CSV":             ("TRANSITION_TARGETS_CSV", "path"),
