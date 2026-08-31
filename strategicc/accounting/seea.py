@@ -880,11 +880,18 @@ class SEEAAccount:
         * Ecosystem conversions: Additions/Reductions come from
           extent_account_seea()'s physical area entries (no
           managed_groups split here — that's a separate, orthogonal
-          dimension). Additions are valued at the class's per-area
-          value in the period's closing year; Reductions at its
-          per-area value in the opening year, matching SEEA EA para.
-          10.12's requirement that these align with the physical extent
-          account.
+          dimension). Additions are valued at the class's NPV-based
+          per-area value in the period's closing year (Closing value /
+          closing area); Reductions at its NPV-based per-area value in
+          the opening year (Opening value / opening area) — matching
+          SEEA EA's own area-effect formula (appendix A10.28: p̄ = V/Q,
+          present-value price divided by physical quantity), and
+          matching the units of Opening/Closing value below (v3.22 fix
+          — earlier versions used one year's raw undiscounted service
+          flow here instead of the NPV'd value, which put this row on a
+          different scale than Net change and manufactured large
+          spurious Enhancement/Degradation residuals; see this method's
+          CHANGELOG note below).
         * Other changes in volume — Catastrophic losses: if
           catastrophic_groups is given, that portion of Reductions
           whose transition `group` is in catastrophic_groups is
@@ -904,7 +911,24 @@ class SEEAAccount:
           Degradation = min(residual, 0)). This is a documented
           approximation, not SEEA EA's condition-attributed split (SEEA
           EA para. 10.12 ties this to the compiled condition account,
-          which STRATEGICC does not have). If a class's
+          which STRATEGICC does not have). As of v3.22 (Additions/
+          Reductions now correctly NPV-based, see above), this residual
+          should be at or near zero for any class with no genuine
+          loss/gain pathway defined in Flow Pathways.csv — a nonzero
+          value now means either (a) real condition change from a
+          modelled loss/gain mechanism, or (b) Monte Carlo aggregation
+          noise from N_ITERATIONS > 1 (stock_df/flow_df totals are
+          medians taken independently per quantity across iterations —
+          the median closing stock and the median additions need not
+          come from the same iteration, so the per-iteration exact
+          identity doesn't carry over exactly to the aggregate; this
+          shrinks with more iterations but note that median, chosen for
+          outlier-robustness, is not linear the way mean is, so it will
+          not reach exactly zero). It does not yet reflect the further
+          refinement of pricing conversions using the true value of the
+          specific converting cells rather than the class's own average
+          (a smaller, secondary effect versus the v3.22 fix above,
+          deferred to a future version). If a class's
           AssetValuationParams.csv row supplies ConditionProxy, its
           direction of change is compared to the residual's sign purely
           as a sanity check — a printed warning if they disagree, never
@@ -975,8 +999,20 @@ class SEEAAccount:
 
                 opening_area = extent.loc[y0, cls]
                 closing_area = extent.loc[y1, cls]
-                val_per_area_y0 = (tv.loc[y0, cls] / opening_area) if opening_area > 0 else 0.0
-                val_per_area_y1 = (tv.loc[y1, cls] / closing_area) if closing_area > 0 else 0.0
+                # v3.22 fix — these must be NPV-based price-per-area (SEEA EA
+                # para. A10.28's p̄ = V/Q, present-value price divided by
+                # physical quantity), matching the units of opening_value/
+                # closing_value below. Using raw tv (one year's undiscounted
+                # flow) here — the pre-3.22 behaviour — put Additions/
+                # Reductions on a completely different scale than Net change
+                # (roughly the AssetLifeYears annuity factor, ~12-13x for a
+                # typical 20yr/5% asset), which manufactured large spurious
+                # Enhancement/Degradation residuals independent of any real
+                # condition change, extent-composition dilution, or Monte
+                # Carlo noise — it reproduced even in a single, deterministic
+                # iteration with no loss pathway defined.
+                val_per_area_y0 = (opening_value / opening_area) if opening_area > 0 else 0.0
+                val_per_area_y1 = (closing_value / closing_area) if closing_area > 0 else 0.0
 
                 additions_area  = ext_seea.loc[(period, "Additions"), cls]
                 reductions_area = ext_seea.loc[(period, "Reductions"), cls]

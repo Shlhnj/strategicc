@@ -331,6 +331,56 @@ def test_monetary_asset_account_seea_catastrophic_groups():
         for col in df.columns:
             assert net[col] == pytest.approx(closing[col] - opening[col])
 
+# ── v3.22: Additions/Reductions must be NPV-based, not raw single-year value ──
+# Regression test for a real bug: pre-3.22, val_per_area was computed from the
+# raw one-year service flow (tv), while Opening/Closing/Net change were NPV'd
+# over AssetLifeYears — an outright units mismatch (roughly the AssetLifeYears
+# annuity factor, ~9x for this fixture's discount_rate=0.02/asset_life_years=10)
+# that manufactured large spurious Enhancement/Degradation residuals with no
+# real cause: no stock/flow, no loss pathway, every service here is a flat,
+# unchanging per-area rate. With no mechanism for genuine condition change,
+# the residual should be at (or within floating-point noise of) zero.
+#
+# Only "2022–2023" is checked — make_trans_df() only logs a transition for
+# 2022, while make_modal_maps() also shows area shifting between 2023 and
+# 2024 with no matching transition logged. That's a pre-existing fixture
+# gap (trans_df and the modal maps disagree for that period), not something
+# a real run can produce — trans_df and modal maps always come from the same
+# simulation there. Checking "2023–2024" here would test the fixture's own
+# inconsistency, not the fix.
+def test_monetary_asset_account_seea_no_spurious_degradation():
+    acct = make_acct(asset_valuation_params=make_asset_valuation_params())
+    df = acct.monetary_asset_account_seea()
+    period = "2022–2023"
+    block = df.loc[period]
+    for col in df.columns:
+        assert block.loc["Ecosystem enhancement", col] == pytest.approx(0.0, abs=1e-6)
+        assert block.loc["Ecosystem degradation", col]  == pytest.approx(0.0, abs=1e-6)
+
+def test_monetary_asset_account_seea_conversions_use_npv_scale():
+    """
+    Additions/Reductions must be on the same order of magnitude as
+    Opening/Closing value (both NPV'd), not ~AssetLifeYears-annuity-factor
+    smaller — the pre-3.22 bug put raw one-year flow values next to NPV'd
+    values, off by roughly that factor for any nontrivial asset life.
+    """
+    acct = make_acct(asset_valuation_params=make_asset_valuation_params())
+    df = acct.monetary_asset_account_seea()
+    period = "2022–2023"
+    block = df.loc[period]
+    opening_total = block.loc["Opening value", "Total"]
+    additions_total = block.loc["Ecosystem conversions — additions", "Total"]
+    reductions_total = block.loc["Ecosystem conversions — reductions", "Total"]
+    # Additions/Reductions reflect only the converted area's share of value,
+    # so they should be a modest fraction of Opening value, not smaller by
+    # an extra ~9x (this fixture's NPV annuity factor) on top of that.
+    assert additions_total > 0 or reductions_total > 0
+    if additions_total > 0:
+        assert additions_total / opening_total > 0.01
+    if reductions_total > 0:
+        assert reductions_total / opening_total > 0.01
+
+
 def test_monetary_asset_account_seea_missing_class_params_raises():
     services = make_services() + [
         EcosystemService("Wetland", "FloodControl", "Regulating", 1_000, "IDR", None, None),
