@@ -1,0 +1,19 @@
+name: Upload Release to Zenodo
+
+on:
+  release:
+    types: [published] # Triggers automatically on a new GitHub release
+
+jobs:
+  zenodo-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Upload to Zenodo
+        uses: megasanjay/upload-to-zenodo@v1.0.1
+        with:
+          zenodo_token: ${{ secrets.ZENODO_TOKEN }}
+          # Optional: it can automatically sync version numbers inside your CITATION.cff or codemeta.json
+          update_metadata_files: true 
