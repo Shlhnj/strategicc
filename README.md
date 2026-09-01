@@ -1,5 +1,5 @@
 # STRATEGICC
-[![DOI](https://zenodo.org/badge/DOI/21o9277 /zenodo.21097277.svg)](https://doi.org/10.5281/zenodo.21097277)
+[![DOI](https://zenodo.org/badge/DOI/2109277/zenodo.21097277.svg)](https://doi.org/10.5281/zenodo.21097277)
 
 **State and Transition Integrated Economic-Environmental Accounting**
 
