@@ -216,10 +216,10 @@ def test_compute_transition_rates_unmapped_excluded(loaded_ts, classes):
 
 def test_compute_temporal_distribution(loaded_ts, group_map):
     yearly = compute_yearly_transition_counts(loaded_ts)
-    df = compute_temporal_distribution(yearly, group_map, min_years=2)
-    assert not df.empty
-    row = df.iloc[0]
-    assert row["DistributionType"] == "Uniform"
+    temporal_df, distributions_df = compute_temporal_distribution(yearly, group_map, min_years=2)
+    assert not temporal_df.empty
+    row = temporal_df.iloc[0]
+    assert row["DistributionType"] == "Mangrove_recruitment Distribution"
     assert row["DistributionMin"] <= row["DistributionMax"]
 
 def test_temporal_distribution_mean_is_one(loaded_ts, group_map):
@@ -241,8 +241,9 @@ def test_temporal_distribution_mean_is_one(loaded_ts, group_map):
 
 def test_temporal_distribution_insufficient_years(loaded_ts, group_map):
     yearly = compute_yearly_transition_counts(loaded_ts)
-    df = compute_temporal_distribution(yearly, group_map, min_years=100)
-    assert df.empty
+    temporal_df, distributions_df = compute_temporal_distribution(yearly, group_map, min_years=100)
+    assert temporal_df.empty
+    assert distributions_df.empty
 
 
 # ── Tests: size distribution ─────────────────────────────────────────────────
@@ -327,7 +328,7 @@ def test_compute_size_distribution_group_map_shared_with_transitions(clustered_t
     here too (no separate grouping scheme — per design decision).
     """
     yearly = compute_yearly_transition_counts(clustered_ts)
-    temporal_df = compute_temporal_distribution(yearly, group_map, min_years=2)
+    temporal_df, distributions_df = compute_temporal_distribution(yearly, group_map, min_years=2)
     size_df = compute_size_distribution(
         clustered_ts, group_map, px_area_ha=PX_AREA_HA, n_bins=4, min_patches=3,
     )
