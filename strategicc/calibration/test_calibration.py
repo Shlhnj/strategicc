@@ -16,6 +16,7 @@ from strategicc.calibration import (
     compute_temporal_distribution, compute_size_distribution,
 )
 from strategicc.calibration.transitions import compute_yearly_transition_counts
+from strategicc.calibration.temporal import _DISTRIBUTIONS_CSV_COLUMNS
 from strategicc.io.csv_loader import StateClass, load_transition_size_rules, group_size_bins
 
 
@@ -219,8 +220,21 @@ def test_compute_temporal_distribution(loaded_ts, group_map):
     temporal_df, distributions_df = compute_temporal_distribution(yearly, group_map, min_years=2)
     assert not temporal_df.empty
     row = temporal_df.iloc[0]
+    assert row["TransitionGroupId"] == "Mangrove_recruitment [Type]"
     assert row["DistributionType"] == "Mangrove_recruitment Distribution"
     assert row["DistributionMin"] <= row["DistributionMax"]
+
+    # distributions_df carries one row per distinct observed multiplier
+    # value for the same group, pooled across qualifying pathways.
+    assert not distributions_df.empty
+    assert set(distributions_df.columns) == set(_DISTRIBUTIONS_CSV_COLUMNS)
+    assert (distributions_df["DistributionTypeId"] == "Mangrove_recruitment Distribution").all()
+    # ValueDistributionRelativeFrequency is a raw occurrence count of each
+    # distinct pooled multiplier value (not normalized), so every row's
+    # count must be a positive integer and values must be strictly sorted.
+    assert (distributions_df["ValueDistributionRelativeFrequency"] > 0).all()
+    values = distributions_df["Value"].tolist()
+    assert values == sorted(values)
 
 def test_temporal_distribution_mean_is_one(loaded_ts, group_map):
     """Validates the core consistency guarantee: mean(multiplier) ~ 1.0"""
@@ -244,6 +258,7 @@ def test_temporal_distribution_insufficient_years(loaded_ts, group_map):
     temporal_df, distributions_df = compute_temporal_distribution(yearly, group_map, min_years=100)
     assert temporal_df.empty
     assert distributions_df.empty
+    assert list(distributions_df.columns) == _DISTRIBUTIONS_CSV_COLUMNS
 
 
 # ── Tests: size distribution ─────────────────────────────────────────────────
@@ -328,7 +343,7 @@ def test_compute_size_distribution_group_map_shared_with_transitions(clustered_t
     here too (no separate grouping scheme — per design decision).
     """
     yearly = compute_yearly_transition_counts(clustered_ts)
-    temporal_df, distributions_df = compute_temporal_distribution(yearly, group_map, min_years=2)
+    temporal_df, _distributions_df = compute_temporal_distribution(yearly, group_map, min_years=2)
     size_df = compute_size_distribution(
         clustered_ts, group_map, px_area_ha=PX_AREA_HA, n_bins=4, min_patches=3,
     )
