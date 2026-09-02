@@ -3,6 +3,14 @@
 
 [![codecov](https://codecov.io/gh/Shlhnj/strategicc/branch/main/graph/badge.svg)](https://codecov.io/gh/Shlhnj/strategicc)
 
+![GitHub Release](https://img.shields.io/github/v/release/Shlhnj/strategicc)
+
+![GitHub License](https://img.shields.io/github/license/Shlhnj/strategicc)
+![GitHub repo size](https://img.shields.io/github/repo-size/Shlhnj/strategicc)
+
+
+
+
 **State and Transition Integrated Economic-Environmental Accounting**
 
 A Python package implementing spatially explicit State-and-Transition Simulation Models ([Daniel et al. 2016](https://doi.org/10.1111/2041-210X.12597)) integrated with the UN's System of Environmental-Economic Accounting — Ecosystem Accounting ([SEEA-EA](https://seea.un.org/ecosystem-accounting)).
