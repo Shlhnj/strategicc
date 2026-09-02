@@ -1,10 +1,7 @@
 # STRATEGICC
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21097277.svg)](https://doi.org/10.5281/zenodo.21097277) 
-
 [![codecov](https://codecov.io/gh/Shlhnj/strategicc/branch/main/graph/badge.svg)](https://codecov.io/gh/Shlhnj/strategicc)
-
 ![GitHub Release](https://img.shields.io/github/v/release/Shlhnj/strategicc)
-
 ![GitHub License](https://img.shields.io/github/license/Shlhnj/strategicc)
 ![GitHub repo size](https://img.shields.io/github/repo-size/Shlhnj/strategicc)
 
