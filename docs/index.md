@@ -56,9 +56,9 @@ maintainer for the current build.
 
 | Example | Demonstrates |
 |---|---|
-| *(would be)* `example1_simple_seea.py` | Single raster → SEEA-EA snapshot valuation, see Guide 1 |
-| *(would be)* `example2_calibration_stsm_seea.py` | Calibration → spatial Monte Carlo simulation → SEEA-EA on a projected future, see Guide 2 |
-| *(would be)* `example3_full_stockflow_seea.py` | Calibration with age → Stock & Flow carbon cycle → Mode C dynamic valuation → asset account, see Guide 3 |
+| **[example 1](strategicc_examples/example1_simple_seea.py)** | Single raster → SEEA-EA snapshot valuation, see Guide 1 |
+| **[example 2](strategicc_examples/example2_calibration_stsm_seea.py)** | Calibration → spatial Monte Carlo simulation → SEEA-EA on a projected future, see Guide 2 |
+| **[example 3](strategicc_examples/example3_full_stockflow_seea.py)**| Calibration with age → Stock & Flow carbon cycle → Mode C dynamic valuation → asset account, see Guide 3 |
 
 ## Testing
 
