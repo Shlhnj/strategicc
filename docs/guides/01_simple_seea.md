@@ -2,7 +2,7 @@
 
 **Complexity:** Beginner
 
-**Full script:** `strategicc_examples/example1_simple_seea.py`
+**Full script:** `strategicc_examples/example1_simple_seea.py` *(this path doesn't exist anywhere in the repository as of this check — see the note in [index.md](../index.md#worked-examples). The code below is complete and runnable on its own.)*
 
 This is the simplest possible use of STRATEGICC that uses no simulation at all. In this case, the user have one land cover raster (e.g. this year's classified satellite image) and want to know what the landscape is worth, broken down by ecosystem service.
 
@@ -50,6 +50,7 @@ Cropland,Crop Provisioning,Provisioning,30000000,IDR,kg/ha,5000
 There's no `StrategiccEngine` here since there's no simulation, the example just build the area table by hand from the raster, then feed it straight to `SEEAAccount`:
 
 ```python
+import pandas as pd
 from strategicc.io import load_state_classes, read_lulc
 from strategicc.accounting import load_ecosystem_services, SEEAAccount
 

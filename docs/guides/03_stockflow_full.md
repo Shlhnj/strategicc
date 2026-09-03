@@ -1,7 +1,7 @@
 # Guide 3: Full Pipeline: Age, Stock & Flow, and Dynamic Valuation
 
 **Complexity:** Advanced
-**Full script:** `strategicc_examples/example3_full_stockflow_seea.py`
+**Full script:** `strategicc_examples/example3_full_stockflow_seea.py` *(this path doesn't exist in the repository — see the note in [index.md](../index.md#worked-examples))*
 
 This is the full STRATEGICC pipeline, building on [Guide 2](02_calibration_stsm.md) by adding carbon Stock & Flow accounting. The carbon valuation responds to age structure, transition dynamics, and stochastic variation, not a flat per-hectare number.
 
@@ -74,6 +74,13 @@ with open("inputs/StateAttributeValues.csv", "w") as f:
 
 These rates (5.1, 11.0, 18.4 Mg C/ha/yr) are drawn from real published mangrove carbon literature ([Alongi 2020](https://doi.org/10.3390/jmse8100767)) — the package's own Stock & Flow engine has been validated against the same source.
 
+`fp_rows` from above still needs writing to the CSV `cfg.FLOW_PATHWAYS_CSV` will point at in Step 4:
+
+```python
+import pandas as pd
+pd.DataFrame(fp_rows).to_csv("inputs/FlowPathways.csv", index=False)
+```
+
 ## Step 3 Mode C ecosystem services
 
 Instead of a static `PhysicalValuePerHa`, set `StockFlowSource` to pull the physical quantity directly from the simulated flow or stock:
@@ -92,6 +99,8 @@ Aquaculture,Aquaculture Fishery,Provisioning,45000000,IDR,kg/ha,800,
 
 ## Step 4 Run with age tracking and Stock & Flow enabled
 
+This guide doesn't use a spatial multiplier raster, but `spatial_mult_csv` and `mult_dir` are still required constructor arguments — there's no default for either (see [engine reference](../reference/engine.md)). Point them at a path and turn the feature off explicitly with `use_spatial_mult=False`; a nonexistent CSV is silently skipped with a printed note, but the argument itself must still be passed:
+
 ```python
 from strategicc import StrategiccEngine
 
@@ -99,13 +108,16 @@ engine = StrategiccEngine(
     lulc_path              = "2022.tif",
     state_classes_csv      = "inputs/StateClasses.csv",
     transitions_csv        = "inputs/Transitions.csv",
+    spatial_mult_csv       = "inputs/TransitionSpatialMultipliers.csv",  # required arg; unused here
     trans_mult_csv         = "inputs/TransitionMultipliers.csv",
     ecosystem_services_csv = "inputs/EcosystemServices.csv",
+    mult_dir               = "spatmult_uploads/",                        # required arg; unused here
     out_dir                = "output/",
     start_year             = 2022,
     n_timesteps            = 10,
     n_iterations           = 15,
     use_adjacency          = True,
+    use_spatial_mult       = False,   # not used in this guide
     use_trans_multiplier   = True,
     use_seea               = True,
     use_age                = True,
