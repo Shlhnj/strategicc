@@ -8,6 +8,7 @@
 
 
 
+
 **State and Transition Integrated Economic-Environmental Accounting**
 
 A Python package implementing spatially explicit State-and-Transition Simulation Models ([Daniel et al. 2016](https://doi.org/10.1111/2041-210X.12597)) integrated with the UN's System of Environmental-Economic Accounting — Ecosystem Accounting ([SEEA-EA](https://seea.un.org/ecosystem-accounting)).
@@ -64,6 +65,7 @@ Full documentation lives in [`docs/`](docs/index.md):
 - **[Guide 3: Full pipeline with Stock & Flow](docs/guides/03_stockflow_full.md)**
 - **[API Reference](docs/index.md#api-reference)**
 - **[RunManifest.txt field reference](docs/manifest_reference.md)**
+- **[Guide 4: Visualization](docs/guides/04_visualization.md)**
 
 ---
 ##### Muhammad Shulhan Jihadi. 2026. 07. 01.
