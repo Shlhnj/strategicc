@@ -10,10 +10,11 @@ The package can simulates how a landscape's land cover changes over time under s
 
 To understand the package, user must have familiarity with STSM workflow concept, then work through the guides in order which each examples builds on the previous one's concepts:
 
-1. **[Getting Started](guides/01_simple_seea.md)**  --> A single LULC raster, no simulation, just SEEA-EA valuation of a snapshot
-2. **[Calibration + Simulation](guides/02_calibration_stsm.md)**  --> Derive transition rates from historical data, run a spatial Monte Carlo simulation, value the simulated future
-3. **[Full Pipeline with Stock & Flow](guides/03_stockflow_full.md)** --> Age-indexed carbon flows, transition-triggered emissions, and dynamic (not static) ecosystem valuation
-4. **[Visualization](guides/04_visualization.md)** --> All plots the package produces, output file locations, inline display in Colab, and export resolution
+1. **[Glossary](docs/glossary.md)** --> getting familiar with terms used in this guide
+2.  **[Getting Started](guides/01_simple_seea.md)**  --> A single LULC raster, no simulation, just SEEA-EA valuation of a snapshot
+3. **[Calibration + Simulation](guides/02_calibration_stsm.md)**  --> Derive transition rates from historical data, run a spatial Monte Carlo simulation, value the simulated future
+4. **[Full Pipeline with Stock & Flow](guides/03_stockflow_full.md)** --> Age-indexed carbon flows, transition-triggered emissions, and dynamic (not static) ecosystem valuation
+5. **[Visualization](guides/04_visualization.md)** --> All plots the package produces, output file locations, inline display in Colab, and export resolution
 
 For exact function signatures and parameters, see the **API Reference** below.
 
