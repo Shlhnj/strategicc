@@ -1,7 +1,7 @@
 # Guide 2: Calibration, Spatial Simulation, and SEEA-EA
 
 **Complexity:** Intermediate
-**Full script:** `strategicc_examples/example2_calibration_stsm_seea.py` *(this path doesn't exist in the repository — see the note in [index.md](../index.md#worked-examples))*
+**Full script:** `strategicc_examples/example2_calibration_stsm_seea.py` *(this path doesn't exist in the repository, see the note in [index.md](../index.md#worked-examples))*
 
 This guide builds on [Guide 1](01_simple_seea.md) by introducing the full simulation pipeline: instead of valuing one static map, you project how the landscape might change over the next N years and value that projected future.
 
@@ -30,7 +30,7 @@ classes = load_state_classes("inputs/StateClasses.csv")
 yearly = compute_yearly_transition_counts(ts)
 ```
 
-`compute_yearly_transition_counts()` is computed once and feeds both outputs below — this guarantees `Transitions.csv` and `TransitionMultipliers.csv` stay mathematically consistent with each other (the mean of the sampled multipliers will equal exactly 1.0).
+`compute_yearly_transition_counts()` is computed once and feeds both outputs below, this guarantees `Transitions.csv` and `TransitionMultipliers.csv` stay mathematically consistent with each other (the mean of the sampled multipliers will equal exactly 1.0).
 
 The user must map observed `(from_class_id, to_class_id)` pixel transitions to a named transition group, pairs not listed are excluded as classification noise:
 

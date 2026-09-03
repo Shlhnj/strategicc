@@ -1,7 +1,7 @@
 # Guide 3: Full Pipeline: Age, Stock & Flow, and Dynamic Valuation
 
 **Complexity:** Advanced
-**Full script:** `strategicc_examples/example3_full_stockflow_seea.py` *(this path doesn't exist in the repository — see the note in [index.md](../index.md#worked-examples))*
+**Full script:** `strategicc_examples/example3_full_stockflow_seea.py` *(this path doesn't exist in the repository, see the note in [index.md](../index.md#worked-examples))*
 
 This is the full STRATEGICC pipeline, building on [Guide 2](02_calibration_stsm.md) by adding carbon Stock & Flow accounting. The carbon valuation responds to age structure, transition dynamics, and stochastic variation, not a flat per-hectare number.
 
@@ -61,7 +61,7 @@ fp_rows = [
 ]
 ```
 
-Because the NPP pathway specifies `StateAttributeTypeId="NPP"`, its flow quantity comes from an age-bracketed lookup table rather than a flat rate — younger mangrove sequesters less carbon per year than mature mangrove:
+Because the NPP pathway specifies `StateAttributeTypeId="NPP"`, its flow quantity comes from an age-bracketed lookup table rather than a flat rate, younger mangrove sequesters less carbon per year than mature mangrove:
 
 ```python
 with open("inputs/StateAttributeValues.csv", "w") as f:
@@ -72,7 +72,7 @@ with open("inputs/StateAttributeValues.csv", "w") as f:
 ''')
 ```
 
-These rates (5.1, 11.0, 18.4 Mg C/ha/yr) are drawn from real published mangrove carbon literature ([Alongi 2020](https://doi.org/10.3390/jmse8100767)) — the package's own Stock & Flow engine has been validated against the same source.
+These rates (5.1, 11.0, 18.4 Mg C/ha/yr) are drawn from real published mangrove carbon literature ([Alongi 2020](https://doi.org/10.3390/jmse8100767)), the package's own Stock & Flow engine has been validated against the same source.
 
 `fp_rows` from above still needs writing to the CSV `cfg.FLOW_PATHWAYS_CSV` will point at in Step 4:
 
@@ -99,7 +99,7 @@ Aquaculture,Aquaculture Fishery,Provisioning,45000000,IDR,kg/ha,800,
 
 ## Step 4 Run with age tracking and Stock & Flow enabled
 
-This guide doesn't use a spatial multiplier raster, but `spatial_mult_csv` and `mult_dir` are still required constructor arguments — there's no default for either (see [engine reference](../reference/engine.md)). Point them at a path and turn the feature off explicitly with `use_spatial_mult=False`; a nonexistent CSV is silently skipped with a printed note, but the argument itself must still be passed:
+This guide doesn't use a spatial multiplier raster, but `spatial_mult_csv` and `mult_dir` are still required constructor arguments, there's no default for either (see [engine reference](../reference/engine.md)). Point them at a path and turn the feature off explicitly with `use_spatial_mult=False`; a nonexistent CSV is silently skipped with a printed note, but the argument itself must still be passed:
 
 ```python
 from strategicc import StrategiccEngine
@@ -127,7 +127,7 @@ engine = StrategiccEngine(
 )
 ```
 
-The Stock & Flow CSVs themselves are configured via `strategicc.config` rather than `StrategiccEngine`'s constructor — set them before calling `engine.load()`:
+The Stock & Flow CSVs themselves are configured via `strategicc.config` rather than `StrategiccEngine`'s constructor, set them before calling `engine.load()`:
 
 ```python
 import strategicc.config as cfg
@@ -186,7 +186,7 @@ acct = SEEAAccount(
 save_all_accounts(acct, engine.out_dir / "seea")
 ```
 
-The "Carbon Storage" service in `monetary_flow_account()` will now show growing value as mangrove matures and accumulates biomass, and the "Carbon Sequestration" service shows the annual flow value — both genuinely responsive to the simulated age structure and transition dynamics, not a flat assumption.
+The "Carbon Storage" service in `monetary_flow_account()` will now show growing value as mangrove matures and accumulates biomass, and the "Carbon Sequestration" service shows the annual flow value, both genuinely responsive to the simulated age structure and transition dynamics, not a flat assumption.
 
 ## Where to go from here
 

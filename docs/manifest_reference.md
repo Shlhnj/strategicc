@@ -44,14 +44,14 @@ If `FetchInitialStateClassFromZip=True`, `StateClassFileName` is ignored and the
 | `TRANSITION_MULT_CSV` | `TRANSITION_MULT_CSV` |
 | `TRANSITION_TYPE_CSV` | `TRANSITION_TYPE_CSV` |
 | `ECOSYSTEM_SERVICES_CSV` | `ECOSYSTEM_SERVICES_CSV` |
-| `ASSET_VALUATION_PARAMS_CSV` | `ASSET_VALUATION_PARAMS_CSV` — optional; only needed for `monetary_asset_account_seea()`, see [accounting reference](reference/accounting.md) |
+| `ASSET_VALUATION_PARAMS_CSV` | `ASSET_VALUATION_PARAMS_CSV`, optional; only needed for `monetary_asset_account_seea()`, see [accounting reference](reference/accounting.md) |
 | `AGE_INITIAL_CSV` | `AGE_INITIAL_CSV` |
 | `TRANSITION_SIZE_CSV` | `TRANSITION_SIZE_CSV` |
-| `TRANSITION_TARGETS_CSV` | `TRANSITION_TARGETS_CSV` — optional; only needed for target-driven (manmade) transition pathways, see [core reference](reference/core.md#targets) |
-| `DISTRIBUTIONS_CSV` | `DISTRIBUTIONS_CSV` — optional; only needed if a transition group's multiplier uses a named (non-Uniform) empirical distribution |
+| `TRANSITION_TARGETS_CSV` | `TRANSITION_TARGETS_CSV`, optional; only needed for target-driven (manmade) transition pathways, see [core reference](reference/core.md#targets) |
+| `DISTRIBUTIONS_CSV` | `DISTRIBUTIONS_CSV`, optional; only needed if a transition group's multiplier uses a named (non-Uniform) empirical distribution |
 | `TRANSITION_ADJACENCY_SETTING_CSV` / `TRANSITION_ADJACENCY_MULT_CSV` | same names |
 | `TERMINOLOGY_CSV` | `TERMINOLOGY_CSV` |
-| `MULT_DIR` | `MULT_DIR` — folder or `.zip` (auto-extracted once to a sibling folder) |
+| `MULT_DIR` | `MULT_DIR`, folder or `.zip` (auto-extracted once to a sibling folder) |
 | `OUT_DIR` | `OUT_DIR` |
 
 All `path` type.
@@ -116,7 +116,7 @@ Controls whether `area_table.csv` / `transition_log.csv` are saved per iteration
 | `STATE_ATTRIBUTE_VALUES_CSV` | `STATE_ATTRIBUTE_VALUES_CSV` | path |
 | `INITIAL_STOCK_NON_SPATIAL_CSV` | `INITIAL_STOCK_NON_SPATIAL_CSV` | path |
 | `SAVE_STOCK_RASTERS` | `SAVE_STOCK_RASTERS` | bool |
-| `SEEA_VALUATION_MODE` | `SEEA_VALUATION_MODE` | str — `area` or `stock_flow` |
+| `SEEA_VALUATION_MODE` | `SEEA_VALUATION_MODE` | str, `area` or `stock_flow` |
 
 See [Guide 3](guides/03_stockflow_full.md) and [`stockflow` reference](reference/stockflow.md) for what each CSV actually contains.
 

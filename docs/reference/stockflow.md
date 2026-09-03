@@ -1,6 +1,6 @@
 # `strategicc.stockflow`
 
-Per-cell, per-timestep tracking of material quantities (typically carbon) moving between pools (Stock Types) via Flow Pathways — either automatically every timestep (age-driven) or triggered by transitions. See [Guide 3](../guides/03_stockflow_full.md) for a complete worked example.
+Per-cell, per-timestep tracking of material quantities (typically carbon) moving between pools (Stock Types) via Flow Pathways, either automatically every timestep (age-driven) or triggered by transitions. See [Guide 3](../guides/03_stockflow_full.md) for a complete worked example.
 
 ```python
 from strategicc.stockflow import (
@@ -22,7 +22,7 @@ A flow pathway connects two stock types. Whether it fires automatically or only 
 
 `FlowOrder.csv` determines the sequence flows are computed in each timestep, this matters when one flow's output feeds another flow's input within the same step (e.g. NPP growing biomass before an emission flow releases a fraction of it).
 
-Three `TargetType` modes control how the flow amount is calculated: `Flow` (the default — `source_quantity x Multiplier`), `ToStock` (multiplier is the target proportion of pre-flow To-Stock), and `FromStock` (multiplier is the target proportion of pre-flow From-Stock).
+Three `TargetType` modes control how the flow amount is calculated: `Flow` (the default, `source_quantity x Multiplier`), `ToStock` (multiplier is the target proportion of pre-flow To-Stock), and `FromStock` (multiplier is the target proportion of pre-flow From-Stock).
 
 ## Aggregating across iterations
 
@@ -52,4 +52,4 @@ The output also includes `closing_balance_actual` (the real stock-raster median 
 
 ## CSV loaders
 
-Same pattern as `strategicc.io` — `load_stock_types`, `load_flow_types`, `load_flow_order`, `load_flow_pathways`, `load_flow_multipliers`, `load_state_attribute_values`, `load_initial_stock_links` each parse their respective CSV into a list of dataclasses. `lookup_state_attribute(rules, attribute_type, age, state_class=None)` performs the age-bracket lookup directly, useful for inspecting what value a given age would resolve to before running a full simulation.
+Same pattern as `strategicc.io`, `load_stock_types`, `load_flow_types`, `load_flow_order`, `load_flow_pathways`, `load_flow_multipliers`, `load_state_attribute_values`, `load_initial_stock_links` each parse their respective CSV into a list of dataclasses. `lookup_state_attribute(rules, attribute_type, age, state_class=None)` performs the age-bracket lookup directly, useful for inspecting what value a given age would resolve to before running a full simulation.

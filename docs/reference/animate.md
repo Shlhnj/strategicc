@@ -10,7 +10,7 @@ path = animate(out_dir="strategicc_output/", panel="value_per_class")
 
 ## Requirements before calling
 
-`animate()` reads already-generated outputs, not raw simulation data, `outputs.aggregate_spatial()` must have already been run (it needs `lulc_mean_{year}.tif` files under `{out_dir}/summary/` — despite what `aggregate_spatial()`'s own docstring says, there's no separate `spatial/` subfolder), and `strategicc.config.STATE_CLASSES_CSV` must still point at a valid `StateClasses.csv` (used for the legend and colours).
+`animate()` reads already-generated outputs, not raw simulation data, `outputs.aggregate_spatial()` must have already been run (it needs `lulc_mean_{year}.tif` files under `{out_dir}/summary/`, despite what `aggregate_spatial()`'s own docstring says, there's no separate `spatial/` subfolder), and `strategicc.config.STATE_CLASSES_CSV` must still point at a valid `StateClasses.csv` (used for the legend and colours).
 
 ## Parameters
 

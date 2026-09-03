@@ -46,7 +46,7 @@ outputs.plot_spatial_summary(
 )
 # Saves to: summary_dir/spatial_summary.png
 # (the function's own internal variable is named spatial_dir, but it's set equal to
-#  summary_dir with no subfolder — same as aggregate_spatial(), see the outputs reference)
+#  summary_dir with no subfolder, same as aggregate_spatial(), see the outputs reference)
 ```
 
 A three-column grid: t=0, mid-simulation, and final year modal maps. If `uncertainty=True`, a second row shows the agreement raster (0-100%, how many iterations agreed with the modal class per cell) for each of the three snapshots, low agreement areas are where the simulation is genuinely uncertain about the outcome.
@@ -108,7 +108,7 @@ Two heatmaps side by side: area converted from each class to each class (from `t
 ## Saving all CSVs and plots
 
 ```python
-save_all_accounts(acct, seea_dir)          # writes up to 12 CSV accounts (some conditional on which optional inputs were passed to SEEAAccount — see the accounting reference)
+save_all_accounts(acct, seea_dir)          # writes up to 12 CSV accounts (some conditional on which optional inputs were passed to SEEAAccount, see the accounting reference)
 plot_monetary_flows(acct, engine.classes, seea_dir)
 plot_value_by_service(acct, seea_dir)
 plot_transition_heatmap(acct, seea_dir)
@@ -134,8 +134,8 @@ display(Image(str(seea_dir / "seea_monetary_flows.png")))
 
 All plots are saved at 300 DPI by default. To change this, edit the `dpi=300` argument in `fig.savefig(...)` directly in:
 
-- `strategicc/outputs.py` — 5 occurrences (simulation plots)
-- `strategicc/accounting/outputs.py` — 3 occurrences (SEEA-EA plots)
+- `strategicc/outputs.py`, 5 occurrences (simulation plots)
+- `strategicc/accounting/outputs.py`, 3 occurrences (SEEA-EA plots)
 
 300 DPI is recommended for publication-quality figures.
 

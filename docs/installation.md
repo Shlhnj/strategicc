@@ -30,11 +30,11 @@ Deriving inputs from a historical LULC time series zip requires `rasterio`:
 pip install rasterio
 ```
 
-If you don't install it, the rest of the package works fine — you'll just need to build `Transitions.csv`, `TransitionMultipliers.csv`, and any age raster by hand or by other means instead of using `load_lulc_timeseries()` / `compute_age_raster()` / `compute_transition_rates()`.
+If you don't install it, the rest of the package works fine, you'll just need to build `Transitions.csv`, `TransitionMultipliers.csv`, and any age raster by hand or by other means instead of using `load_lulc_timeseries()` / `compute_age_raster()` / `compute_transition_rates()`.
 
 ### MP4 animation export
 
-`strategicc.animate()` can save GIFs out of the box (uses Pillow, already a core dependency). MP4 output additionally requires the `ffmpeg` binary to be installed and on your system `PATH` — this is a system package, not a Python package:
+`strategicc.animate()` can save GIFs out of the box (uses Pillow, already a core dependency). MP4 output additionally requires the `ffmpeg` binary to be installed and on your system `PATH`, this is a system package, not a Python package:
 
 ```bash
 # Ubuntu / Debian / Colab

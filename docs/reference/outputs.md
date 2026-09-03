@@ -45,4 +45,4 @@ area_modal_df = outputs.modal_to_area_table(
 
 ## Output files
 
-`aggregate_spatial()` writes `lulc_mean_{year}.tif` (the modal raster) and, if `uncertainty=True`, `uncertainty_{year}.tif` (0-100, percent of iterations agreeing with the modal class) directly into `summary_dir` (the function's own docstring says `summary_dir/spatial/`, but the actual code sets `spatial_dir = summary_dir` with no subfolder — the files land in `summary_dir` itself). These are the files `strategicc.animate()` reads to build its map panel, so they need to exist before calling `animate()`.
+`aggregate_spatial()` writes `lulc_mean_{year}.tif` (the modal raster) and, if `uncertainty=True`, `uncertainty_{year}.tif` (0-100, percent of iterations agreeing with the modal class) directly into `summary_dir` (the function's own docstring says `summary_dir/spatial/`, but the actual code sets `spatial_dir = summary_dir` with no subfolder, the files land in `summary_dir` itself). These are the files `strategicc.animate()` reads to build its map panel, so they need to exist before calling `animate()`.
