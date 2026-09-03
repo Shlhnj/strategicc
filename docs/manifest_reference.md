@@ -139,4 +139,4 @@ USE_ADJACENCY = True #bool
 USE_SEEA = True #bool
 ```
 
-Any field not present in the file simply keeps whatever default `strategicc/config.py` already has — you don't need to fill in every section, only the parts relevant to your scenario.
+Any field not present in the file simply keeps whatever default `strategicc/config.py` already has, you don't need to fill in every section, only the parts relevant to your scenario.
