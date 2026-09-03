@@ -31,7 +31,7 @@ The package is organized into subpackages, each documented separately:
 
 | Subpackage | Purpose |
 |---|---|
-| [`engine`](reference/engine.md) | `StrategiccEngine` — the core simulation class |
+| [`engine`](reference/engine.md) | `StrategiccEngine` the core simulation class |
 | [`config`](reference/config.md) | Runtime configuration, `RunManifest.txt` loader |
 | [`core`](reference/core.md) | Transition firing mechanics: adjacency, age, patch growth, targets |
 | [`io`](reference/io.md) | Raster and CSV reading/writing |
@@ -58,7 +58,7 @@ maintainer for the current build.
 |---|---|
 | *(would be)* `example1_simple_seea.py` | Single raster → SEEA-EA snapshot valuation — see Guide 1 |
 | *(would be)* `example2_calibration_stsm_seea.py` | Calibration → spatial Monte Carlo simulation → SEEA-EA on a projected future — see Guide 2 |
-| *(would be)* `example3_full_stockflow_seea.py` | Calibration with age → Stock & Flow carbon cycle → Mode C dynamic valuation → asset account — see Guide 3 |
+| *(would be)* `example3_full_stockflow_seea.py` | Calibration with age → Stock & Flow carbon cycle → Mode C dynamic valuation → asset account, see Guide 3 |
 
 ## Testing
 
