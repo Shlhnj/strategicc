@@ -16,8 +16,9 @@ This installs the core package with its required dependencies:
 - `pandas>=2.0`
 - `Pillow>=10.0`
 - `matplotlib>=3.7`
+- `scipy>=1.10`
 
-These four cover the simulation engine, SEEA-EA accounting, Stock & Flow, and all plotting, everything except the calibration module and MP4 animation export.
+These five cover the simulation engine, SEEA-EA accounting, Stock & Flow, and all plotting, everything except the calibration module and MP4 animation export.
 
 ## Optional dependencies
 

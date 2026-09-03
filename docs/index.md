@@ -52,17 +52,17 @@ maintainer for the current build.
 
 ## Worked examples
 
-Three complete, runnable scripts at increasing complexity live in `strategicc_examples/`:
+**Note: `strategicc_examples/` doesn't exist in this repository** — I checked the full repo tree (`tests/`, `inputs/`, `strategicc/`, and everything else at root) and there's no such directory, nor any trace of `example1_simple_seea.py` / `example2_calibration_stsm_seea.py` / `example3_full_stockflow_seea.py` anywhere, including in `CHANGELOG.md`. Either these scripts were never added or were removed without updating this page. Until they exist, the closest equivalents are the runnable code blocks in [Guide 1](guides/01_simple_seea.md), [Guide 2](guides/02_calibration_stsm.md), and [Guide 3](guides/03_stockflow_full.md), which cover the same three complexity levels described below:
 
 | Example | Demonstrates |
 |---|---|
-| `example1_simple_seea.py` | Single raster → SEEA-EA snapshot valuation |
-| `example2_calibration_stsm_seea.py` | Calibration → spatial Monte Carlo simulation → SEEA-EA on a projected future |
-| `example3_full_stockflow_seea.py` | Calibration with age → Stock & Flow carbon cycle → Mode C dynamic valuation → asset account |
+| *(would be)* `example1_simple_seea.py` | Single raster → SEEA-EA snapshot valuation — see Guide 1 |
+| *(would be)* `example2_calibration_stsm_seea.py` | Calibration → spatial Monte Carlo simulation → SEEA-EA on a projected future — see Guide 2 |
+| *(would be)* `example3_full_stockflow_seea.py` | Calibration with age → Stock & Flow carbon cycle → Mode C dynamic valuation → asset account — see Guide 3 |
 
 ## Testing
 
-The package ships with 162 tests covering every module, including literature-grounded validation (Alongi 2020 mangrove carbon mass-balance) and regression tests for several real bugs caught during development. Run with:
+The package ships with 436 tests across 31 files in `tests/` (plus `strategicc/calibration/test_calibration.py` inside the package itself), covering every module, including literature-grounded validation (Alongi 2020 mangrove carbon mass-balance) and regression tests for several real bugs caught during development. Run with:
 
 ```bash
 pip install -e ".[dev]"

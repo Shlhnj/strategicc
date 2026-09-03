@@ -44,6 +44,7 @@ If `FetchInitialStateClassFromZip=True`, `StateClassFileName` is ignored and the
 | `TRANSITION_MULT_CSV` | `TRANSITION_MULT_CSV` |
 | `TRANSITION_TYPE_CSV` | `TRANSITION_TYPE_CSV` |
 | `ECOSYSTEM_SERVICES_CSV` | `ECOSYSTEM_SERVICES_CSV` |
+| `ASSET_VALUATION_PARAMS_CSV` | `ASSET_VALUATION_PARAMS_CSV` — optional; only needed for `monetary_asset_account_seea()`, see [accounting reference](reference/accounting.md) |
 | `AGE_INITIAL_CSV` | `AGE_INITIAL_CSV` |
 | `TRANSITION_SIZE_CSV` | `TRANSITION_SIZE_CSV` |
 | `TRANSITION_TARGETS_CSV` | `TRANSITION_TARGETS_CSV` — optional; only needed for target-driven (manmade) transition pathways, see [core reference](reference/core.md#targets) |
