@@ -50,11 +50,16 @@ save_transitions_csv(transitions_df, "inputs/Transitions.csv")
 ## Deriving the temporal multiplier distribution
 
 ```python
-temporal_df = compute_temporal_distribution(yearly, group_map, min_years=3)
+temporal_df, distributions_df = compute_temporal_distribution(yearly, group_map, min_years=3)
 save_temporal_distribution_csv(temporal_df, "inputs/TransitionMultipliers.csv")
 ```
 
-For each group, computes `multiplier_year = yearly_probability / mean_probability` across all observed years, then reports `Uniform(min(multiplier), max(multiplier))`, by construction, `mean(multiplier) ~= 1.0`, so sampling this distribution during simulation reproduces the same average behaviour as the static `Transitions.csv` probability while preserving the historical year-to-year variability as uncertainty. Groups observed in fewer than `min_years` distinct years are skipped (insufficient data for a reliable range).
+Returns **two** DataFrames, not one — a `(from_id, to_id)` pathway observed in fewer than `min_years` distinct years is dropped from its group's empirical set entirely (not pooled in); a group is only skipped altogether if none of its pathways clear the threshold:
+
+- `temporal_df` — ST-Sim `TransitionMultipliers.csv` schema (`TransitionGroupId`, `DistributionType`, `DistributionMin`, `DistributionMax`), one row per transition group. `DistributionType` is a **named reference** (`"{group} Distribution"`), not the literal `"Uniform"` — as of this version the distribution is empirical, not a simple `Uniform(min, max)` summary.
+- `distributions_df` — the matching ST-Sim `Distributions.csv` schema (full column set; only `DistributionTypeId`, `Value`, and `ValueDistributionRelativeFrequency` are populated), one row per distinct observed multiplier value per group, pooled across all of that group's qualifying pathways.
+
+Both need saving — `save_temporal_distribution_csv(temporal_df, ...)` writes `TransitionMultipliers.csv`, and `distributions_df` should be saved separately (e.g. `distributions_df.to_csv("inputs/Distributions.csv")`) and pointed to via `cfg.DISTRIBUTIONS_CSV` / the manifest's `DISTRIBUTIONS_CSV` field — see [manifest_reference.md](../manifest_reference.md), which documents `DISTRIBUTIONS_CSV` as needed "if a transition group's multiplier uses a named (non-Uniform) empirical distribution", which is exactly what this function now produces.
 
 ## Fetching an initial state class from a zip
 

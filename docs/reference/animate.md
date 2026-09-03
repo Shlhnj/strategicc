@@ -10,7 +10,7 @@ path = animate(out_dir="strategicc_output/", panel="value_per_class")
 
 ## Requirements before calling
 
-`animate()` reads already-generated outputs, not raw simulation data, `outputs.aggregate_spatial()` must have already been run (it needs `lulc_mean_{year}.tif` files under `{out_dir}/summary/spatial/`), and `strategicc.config.STATE_CLASSES_CSV` must still point at a valid `StateClasses.csv` (used for the legend and colours).
+`animate()` reads already-generated outputs, not raw simulation data, `outputs.aggregate_spatial()` must have already been run (it needs `lulc_mean_{year}.tif` files under `{out_dir}/summary/` — despite what `aggregate_spatial()`'s own docstring says, there's no separate `spatial/` subfolder), and `strategicc.config.STATE_CLASSES_CSV` must still point at a valid `StateClasses.csv` (used for the legend and colours).
 
 ## Parameters
 
@@ -23,6 +23,8 @@ path = animate(out_dir="strategicc_output/", panel="value_per_class")
 | `output_format` | `"gif"` | `"gif"` or `"mp4"` (MP4 requires the `ffmpeg` binary) |
 | `output_path` | `None` (defaults to `{out_dir}/animation.{format}`) | Where to save |
 | `historical_ts` | `None` | An `LULCTimeSeries` (from `strategicc.calibration.load_lulc_timeseries()`) whose years are prepended before the simulated timeline |
+| `px_area_ha` | `None` | Pixel area in hectares; only needed when `historical_ts` is supplied together with `panel="area_per_class"`, so the historical side of the right panel can be computed. Ignored otherwise |
+| `figsize` | `(14, 6)` | Matplotlib figure size in inches, `(width, height)` |
 
 ## Right panel options
 

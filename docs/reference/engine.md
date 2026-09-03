@@ -41,7 +41,7 @@ engine = StrategiccEngine(
 )
 ```
 
-Most parameters have sensible defaults, only `lulc_path`, `state_classes_csv`, `transitions_csv`, and `out_dir` are strictly required to get something running. CSVs that don't exist on disk are silently skipped with a printed note (e.g. no `TransitionSizeDistribution.csv` -> all groups use independent-cell firing instead of patch growth).
+`lulc_path`, `state_classes_csv`, `transitions_csv`, `spatial_mult_csv`, `trans_mult_csv`, `ecosystem_services_csv`, `mult_dir`, and `out_dir` are all required — there's no default for any of them, so omitting one raises a `TypeError`. Everything after `out_dir` has a sensible default. If you don't actually want spatial multipliers, adjacency, etc., pass the corresponding CSV path anyway (even to a file that doesn't exist) and set the matching `use_*` flag to `False` — CSVs that don't exist on disk are silently skipped with a printed note (e.g. no `TransitionSizeDistribution.csv` -> all groups use independent-cell firing instead of patch growth). In practice, `StrategiccEngine.from_config()` avoids this entirely since `strategicc.config` already has defaults for every path.
 
 ## The three-step lifecycle
 

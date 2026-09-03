@@ -54,32 +54,22 @@ it's known to be unstable under class imbalance, per Pontius & Millones
 
 ## Correcting calibration from hindcast results
 
+**Version history — this section was stale.** The two caveats below described v3.13's behavior and were still shown as current in this doc; checking against the installed `strategicc==3.22` source shows both have since been fixed:
+
+- **Grouping.** As of v3.16 (reverting a brief v3.14 change to pair-level output), `compute_pathway_rate_ratios()` pools rates at the `TransitionTypeId` **group** level consistently on both the observed and simulated sides — the v3.13-era mismatch (unweighted mean on one side, pool-weighted on the other) no longer applies. Pair-level rates can still be computed directly from `trans_df`/`area_df` if needed.
+- **Units.** `px_area_ha` is now a **required** parameter (added at v3.14, kept since): the hectare-denominated `area_df` pool is converted to a pixel count via `px_area_ha` before dividing, so numerator and denominator are in the same units. Pre-v3.14 output (lacking this parameter) was off by a constant factor of `1/px_area_ha`.
+
 ```python
 rate_ratios = compute_pathway_rate_ratios(
-    result.trans_df, result.area_df, "calibration_result/Transitions.csv", n_timesteps=22,
+    result.trans_df, result.area_df, "calibration_result/Transitions.csv",
+    px_area_ha=engine.px_area_ha,   # required
+    n_timesteps=22,                 # accepted for call-site compatibility but currently unused —
+                                     # rates are computed per-year regardless of this value
 )
 corrected = correct_multipliers(rate_ratios, "TransitionMultipliers.csv")
 ```
 
-**Version-specific behavior — read before trusting output from this
-function.** As of v3.13, `compute_pathway_rate_ratios()`:
-
-- Operates at the **group** (`TransitionTypeId`) level, not at the
-  `(from_class, to_class)` pair level. A group spanning multiple pairs
-  gets an unweighted mean on the observed side, but a pool-weighted mean
-  (all source classes pooled into one shared denominator) on the
-  simulated side — these two ways of aggregating don't measure the same
-  thing, and the mismatch can hide which specific pair within a group is
-  actually miscalibrated.
-- Takes **no `px_area_ha` parameter** — the simulated rate is derived
-  directly from `area_ha` without converting to a pixel count first,
-  which scales every returned ratio by `1/px_area_ha` relative to the
-  true probability.
-
-Both are fixed in a later version (pair-level atomicity, explicit
-`px_area_ha` correction) but **not in v3.13** — don't treat ratios from
-this version as directly comparable across pixel sizes or as reliable at
-the individual-pair level within a multi-pair group.
+`correct_multipliers()` also now accepts several parameters not shown in the minimal call above — `method`, `distributions_csv_path`, `manifest_path`, `ts`, `target_groups`, `n_iterations_per_trial`, `max_reruns` — suggesting an iterative rerun-based correction mode beyond simple scaling exists; this page doesn't yet cover that mode in detail, check the function's own docstring (`method="scaling"` is the default and matches everything described below).
 
 `correct_multipliers()` returns a dict:
 
