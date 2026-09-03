@@ -2,7 +2,7 @@
 
 **Complexity:** Beginner
 
-**Full script:** `strategicc_examples/example1_simple_seea.py` *(this path doesn't exist anywhere in the repository as of this check, see the note in [index.md](../index.md#worked-examples). The code below is complete and runnable on its own.)*
+**Full script:** **[example 1](strategicc_examples/example1_simple_seea.py)** 
 
 This is the simplest possible use of STRATEGICC that uses no simulation at all. In this case, the user have one land cover raster (e.g. this year's classified satellite image) and want to know what the landscape is worth, broken down by ecosystem service.
 
