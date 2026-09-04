@@ -1,7 +1,7 @@
 # Guide 2: Calibration, Spatial Simulation, and SEEA-EA
 
 **Complexity:** Intermediate
-**Full script:** **[example 2](strategicc_examples/example2_calibration_stsm_seea.py)**
+**Full script:** **[example 2](/strategicc_examples/example2_calibration_stsm_seea.py)**
 
 This guide builds on [Guide 1](01_simple_seea.md) by introducing the full simulation pipeline: instead of valuing one static map, you project how the landscape might change over the next N years and value that projected future.
 
