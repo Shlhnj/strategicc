@@ -1,7 +1,7 @@
 # Guide 3: Full Pipeline: Age, Stock & Flow, and Dynamic Valuation
 
 **Complexity:** Advanced
-**Full script:** [example 3](/strategicc_example/example3_full_stockflow_seea.py)
+**Full script:** [example 3](/strategicc_examples/example3_full_stockflow_seea.py)
 
 This is the full STRATEGICC pipeline, building on [Guide 2](02_calibration_stsm.md) by adding carbon Stock & Flow accounting. The carbon valuation responds to age structure, transition dynamics, and stochastic variation, not a flat per-hectare number.
 
